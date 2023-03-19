@@ -4,6 +4,8 @@ import toml.Parse
 
 import scala.util.control.NonLocalReturns.*
 
+def config(using Config): Config = summon[Config]
+
 object Config:
   import toml.Codecs.{*, given}
   import toml.Value.*
@@ -39,7 +41,7 @@ object Config:
   private def validateModule(module: Module, rest: Set[Module]): Either[String, Unit] =
     if module.dependsOn.contains(module.name) then
       Left(s"module ${module.name} cannot depend on itself")
-    else if module.kind == ModuleKind.Application && rest.exists(_.dependsOn.contains(module)) then
+    else if module.kind.isInstanceOf[ModuleKind.Application] && rest.exists(_.dependsOn.contains(module)) then
       Left(s"module ${module.name} is depended on by ${rest.find(_.dependsOn.contains(module)).get.name} but is an application")
     else if module.dependsOn.exists(mod => !rest.exists(_.name == mod)) then
       Left(s"module ${module.name} depends on ${module.dependsOn.find(mod => !rest.exists(_.name == mod)).get} which does not exist")
@@ -68,14 +70,21 @@ object Config:
           }))
           case _ => throwReturn(Left(s"modules.${key}.dependsOn must be a list of strings"))
         }).getOrElse(Nil)
+        val mainClass = values.get("mainClass").flatMap({
+          case Str(value) => Some(value)
+          case _ => throwReturn(Left(s"modules.${key}.mainClass must be a string"))
+        })
+        val moduleKind = kind match
+          case "library" => ModuleKind.Library
+          case "application" => ModuleKind.Application(mainClass = mainClass)
+          case "resource" => ModuleKind.Resource
+          case _ => throwReturn(Left(s"unknown module kind for modules.${key}.kind: $kind"))
+        if !moduleKind.isInstanceOf[ModuleKind.Application] && mainClass.nonEmpty then
+          throwReturn(Left(s"modules.${key}.mainClass is only valid for application modules"))
         Right(Module(
           name = name,
           root = root,
-          kind = kind match
-            case "library" => ModuleKind.Library
-            case "application" => ModuleKind.Application
-            case "resource" => ModuleKind.Resource
-            case _ => throwReturn(Left(s"unknown module kind for modules.${key}.kind: $kind")),
+          kind = moduleKind,
           dependsOn = dependsOn
         ))
       case _ =>
@@ -95,4 +104,5 @@ case class Module(
 )
 
 enum ModuleKind:
-  case Library, Application, Resource
+  case Library, Resource
+  case Application(mainClass: Option[String])

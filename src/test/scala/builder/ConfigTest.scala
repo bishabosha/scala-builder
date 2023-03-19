@@ -5,6 +5,7 @@ scalaVersion = "3.2.2"
 
 [modules.webserver]
 kind = "application" # cannot be depended on by other modules
+mainClass = "com.example.Main"
 dependsOn = ["core", "webpage"]
 
 [modules.webpage]
@@ -29,7 +30,7 @@ class ConfigTest extends munit.FunSuite {
         Module(
           name = "webserver",
           root = "webserver",
-          kind = ModuleKind.Application,
+          kind = ModuleKind.Application(mainClass = Some("com.example.Main")),
           dependsOn = List("core", "webpage")
         ),
         Module(
