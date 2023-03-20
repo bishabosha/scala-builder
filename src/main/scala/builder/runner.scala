@@ -2,18 +2,21 @@ package builder
 
 import ConsoleCommand.*
 
+// TODO: export the build of each module to json with scala-cli.
+
 @main def runner(args: String*) =
   ConsoleCommand.parse(args.toList) match
     case None => println("[error] Invalid command. Try `run [args]`")
     case Some(command) => execCommand(command)
 
 enum ConsoleCommand:
-  case Run, Clean
+  case Run, Clean, Test
 
 object ConsoleCommand:
   def parse(args: List[String]): Option[ConsoleCommand] = args match
     case "run" :: args => Some(Run)
     case "clean" :: args => Some(Clean)
+    case "test" :: args => Some(Test)
     case _ => None
 
 
@@ -29,6 +32,10 @@ def run()(using Config): Unit =
 def clean()(using Config): Unit =
   for plan <- config.modules.map(CleanPlan.compile) do
     plan.clean()
+
+def test()(using Config): Unit =
+  for plan <- config.modules.map(TestPlan.compile) do
+    plan.test()
 
 def withConfig(body: Config ?=> Unit): Unit =
   val buildConfig = Either.cond(
@@ -46,6 +53,7 @@ def execCommand(command: ConsoleCommand): Unit = withConfig {
   command match
     case Run => run()
     case Clean => clean()
+    case Test => test()
 }
 
 
