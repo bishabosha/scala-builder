@@ -3,6 +3,7 @@ package builder
 import toml.Parse
 
 import scala.util.control.NonLocalReturns.*
+import upickle.default.ReadWriter
 
 def config(using Config): Config = summon[Config]
 
@@ -94,15 +95,15 @@ object Config:
 case class Config(
   scalaVersion: Option[String] = None,
   modules: List[Module] = Nil
-)
+) derives ReadWriter
 
 case class Module(
   name: String,
   root: String,
   kind: ModuleKind = ModuleKind.Library,
   dependsOn: List[String] = Nil
-)
+) derives ReadWriter
 
-enum ModuleKind:
+enum ModuleKind derives ReadWriter:
   case Library, Resource
   case Application(mainClass: Option[String])

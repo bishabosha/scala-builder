@@ -1,6 +1,7 @@
 package builder
 
 import ConsoleCommand.*
+import upickle.default.*
 
 // TODO: export the build of each module to json with scala-cli.
 
@@ -10,7 +11,7 @@ import ConsoleCommand.*
     case Right(command) => execCommand(command)
 
 enum ConsoleCommand:
-  case Run, Clean, Test
+  case Run, Clean, Test, ShowConfig
   case Repl(project: String)
 
 object ConsoleCommand:
@@ -20,6 +21,7 @@ object ConsoleCommand:
     case "test" :: args => Right(Test)
     case "repl" :: Nil => Left("missing project name for `repl` command")
     case "repl" :: project :: args => Right(Repl(project))
+    case "show-config" :: args => Right(ShowConfig)
     case _ => Left("Invalid command. Try `run [args]`")
 
 
@@ -46,6 +48,9 @@ def repl(opts: Repl)(using Config): Unit =
   do
     ReplPlan.compile(proj).repl()
 
+def showConfig()(using Config): Unit =
+  println(s"config:\n${write(config, indent = 2)}")
+
 def withConfig(body: Config ?=> Unit): Unit =
   val buildConfig = Either.cond(
     os.exists(os.pwd / "builder.toml"),
@@ -64,6 +69,7 @@ def execCommand(command: ConsoleCommand): Unit = withConfig {
     case Clean => clean()
     case Test => test()
     case opts @ Repl(_) => repl(opts)
+    case ShowConfig => showConfig()
 }
 
 
