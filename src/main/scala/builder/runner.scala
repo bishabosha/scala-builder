@@ -1,6 +1,6 @@
 package builder
 
-import ConsoleCommand.*
+import ConsoleSubCommand.*
 import upickle.default.*
 
 // TODO: export the build of each module to json with scala-cli.
@@ -10,23 +10,37 @@ import upickle.default.*
     case Left(err) => Console.err.println(s"[error] $err")
     case Right(command) => execCommand(command)
 
-enum ConsoleCommand:
-  case Run, Clean, Test, ShowConfig
+enum ConsoleSubCommand:
+  case Run, Clean, ShowConfig
   case Repl(project: String)
+  case Test(projects: List[String])
+
+case class ConsoleCommand(sub: ConsoleSubCommand, debug: Boolean)
+
+def settings(using Settings): Settings = summon[Settings]
+
+case class Settings(debug: Boolean, config: Config)
 
 object ConsoleCommand:
+
   def parse(args: List[String]): Either[String, ConsoleCommand] = args match
-    case "run" :: args => Right(Run)
-    case "clean" :: args => Right(Clean)
-    case "test" :: args => Right(Test)
+    case "run" :: args => Right(ConsoleCommand(Run, debug = args.contains("--debug")))
+    case "clean" :: args => Right(ConsoleCommand(Clean, debug = args.contains("--debug")))
+    case "test" :: args =>
+      val (projects, args1) = args match
+        case arg :: rest if !arg.startsWith("-") =>
+          (arg.split(":").toList, rest)
+        case _ =>
+          (Nil, args)
+      Right(ConsoleCommand(Test(projects), debug = args1.contains("--debug")))
     case "repl" :: Nil => Left("missing project name for `repl` command")
-    case "repl" :: project :: args => Right(Repl(project))
-    case "show-config" :: args => Right(ShowConfig)
+    case "repl" :: project :: args => Right(ConsoleCommand(Repl(project), debug = args.contains("--debug")))
+    case "show-config" :: args => Right(ConsoleCommand(ShowConfig, debug = args.contains("--debug")))
     case _ => Left("Invalid command. Try `run [args]`")
 
 
-def run()(using Config): Unit =
-  config.modules.filter(_.kind.isInstanceOf[ModuleKind.Application]) match
+def run()(using Settings): Unit =
+  settings.config.modules.values.filter(_.kind.isInstanceOf[ModuleKind.Application]).toList match
     case Nil => Console.err.println("[error] No application modules found")
     case app :: Nil =>
       RunPlan.compile(app) match
@@ -34,24 +48,26 @@ def run()(using Config): Unit =
         case Right(plan) => plan.exec()
     case _ => Console.err.println("[error] Multiple application modules found (TODO: ask which one to run)")
 
-def clean()(using Config): Unit =
-  for plan <- config.modules.map(CleanPlan.compile) do
+def clean()(using Settings): Unit =
+  for plan <- settings.config.modules.values.map(CleanPlan.compile) do
     plan.clean()
 
-def test()(using Config): Unit =
-  for plan <- config.modules.map(TestPlan.compile) do
+def test(opts: Test)(using Settings): Unit =
+  val mods = settings.config.modules.values
+  val filtered = if opts.projects.isEmpty then mods else mods.filter(m => opts.projects.contains(m.name))
+  for plan <- filtered.map(TestPlan.compile) do
     plan.test()
 
-def repl(opts: Repl)(using Config): Unit =
+def repl(opts: Repl)(using Settings): Unit =
   for
-    proj <- config.modules.find(_.name == opts.project)
+    proj <- settings.config.modules.values.find(_.name == opts.project)
   do
     ReplPlan.compile(proj).repl()
 
-def showConfig()(using Config): Unit =
-  println(s"config:\n${write(config, indent = 2)}")
+def showConfig()(using Settings): Unit =
+  println(s"config:\n${write(settings.config, indent = 2)}")
 
-def withConfig(body: Config ?=> Unit): Unit =
+def withSettings(command: ConsoleCommand)(body: Settings ?=> Unit): Unit =
   val buildConfig = Either.cond(
     os.exists(os.pwd / "builder.toml"),
     Config.parse(os.read(os.pwd / "builder.toml")),
@@ -61,30 +77,13 @@ def withConfig(body: Config ?=> Unit): Unit =
   buildConfig match
     case Left(error) => Console.err.println(s"[error] $error")
     case Right(config) =>
-      body(using config)
+      body(using Settings(command.debug, config))
 
-def execCommand(command: ConsoleCommand): Unit = withConfig {
-  command match
+def execCommand(command: ConsoleCommand): Unit = withSettings(command) {
+  command.sub match
     case Run => run()
     case Clean => clean()
-    case Test => test()
+    case opts @ Test(_) => test(opts)
     case opts @ Repl(_) => repl(opts)
     case ShowConfig => showConfig()
 }
-
-
-
-    // if os.exists(os.pwd / "builder.toml") then
-    //   val config = Config.parse(os.read(os.pwd / "builder.toml")) match
-    //     case Left(err) => println(s"[error] $err")
-    //     case Right(value) => value
-    //   val builder = Builder(config)
-    //   builder.build()
-    // else
-    //   println("[error] No builder.toml file found in current directory")
-
-    // val config = Config.parse(args) match
-    //   case Left(err) => println(s"[error] $err")
-    //   case Right(value) => value
-    // val builder = Builder(config)
-    // builder.build()

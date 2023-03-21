@@ -33,9 +33,9 @@ object Config:
             case Left(err) => throwReturn(Left(err))
             case Right(_) => ()
           )
-          Some(parsed)
+          Some(parsed.map(module => module.name -> module).toMap)
         case _ => throwReturn(Left("modules must be a table"))
-      }).getOrElse(Nil)
+      }).getOrElse(Map.empty)
     ))
   }
 
@@ -94,7 +94,7 @@ object Config:
 
 case class Config(
   scalaVersion: Option[String] = None,
-  modules: List[Module] = Nil
+  modules: Map[String, Module]
 ) derives ReadWriter
 
 case class Module(

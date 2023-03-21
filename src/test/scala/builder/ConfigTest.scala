@@ -26,20 +26,20 @@ class ConfigTest extends munit.FunSuite {
 
     assertEquals(config, Config(
       scalaVersion = Some("3.2.2"),
-      modules = List(
-        Module(
+      modules = Map(
+        "webserver" -> Module(
           name = "webserver",
           root = "webserver",
           kind = ModuleKind.Application(mainClass = Some("com.example.Main")),
           dependsOn = List("core", "webpage")
         ),
-        Module(
+        "webpage" -> Module(
           name = "webpage",
           root = "webpage",
           kind = ModuleKind.Resource,
           dependsOn = List("core")
         ),
-        Module(
+        "core" -> Module(
           name = "core",
           root = "core",
           kind = ModuleKind.Library,
