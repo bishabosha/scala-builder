@@ -3,16 +3,30 @@ package builder
 import ScalaCommand.SubCommand
 import SharedPlan.*
 
-object reporter:
-  inline def debug(msg: String)(using Settings): Unit =
-    if settings.debug then println(s"[debug] $msg")
+sealed trait RunPlan:
+  def exec(): Unit
+
+sealed trait TestPlan:
+  def test(): Unit
+
+sealed trait ReplPlan:
+  def repl(): Unit
+
+sealed trait CleanPlan:
+  def clean(): Unit
 
 private object SharedPlan:
-  def compileLibrary(module: Module)(using Settings): CompilePlan =
+
+  type ClasspathResult = (Boolean, List[String])
+
+  sealed trait DependencyPlan:
+    def classpath: ClasspathResult
+
+  private def compileLibrary(module: Module)(using Settings): DependencyPlan =
     val deps = compileDeps(module)
 
     new:
-      def classpath =
+      def classpath: ClasspathResult =
         val (clean, dclasspath) = depsClasspath(deps)
         println(s"[info] maybe compiling library module ${module.name}...")
         if clean then doCleanModule(module)
@@ -30,11 +44,11 @@ private object SharedPlan:
     end new
   end compileLibrary
 
-  def compileResource(module: Module)(using Settings): CompilePlan =
+  private def compileResource(module: Module)(using Settings): DependencyPlan =
     new:
-      def classpath = (false, Nil)
+      def classpath: ClasspathResult = (false, Nil)
 
-  def compileDep(module: Module)(using Settings): CompilePlan =
+  private def compileDep(module: Module)(using Settings): DependencyPlan =
     module.kind match
       case ModuleKind.Library => compileLibrary(module)
       case ModuleKind.Resource => compileResource(module)
@@ -45,26 +59,14 @@ private object SharedPlan:
     os.proc(ScalaCommand.makeArgs(module, SubCommand.Clean, Nil))
       .spawn(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit).join()
 
-  def depsClasspath(deps: List[CompilePlan]): (Boolean, List[String]) =
+  def depsClasspath(deps: List[DependencyPlan]): (Boolean, List[String]) =
     val (cleans, classpaths) = deps.map(_.classpath).unzip
     (cleans.exists(identity), classpaths.flatten.distinct.sorted)
 
-  def compileDeps(module: Module)(using Settings): List[CompilePlan] =
+  def compileDeps(module: Module)(using Settings): List[DependencyPlan] =
     module.dependsOn.flatMap(settings.config.modules.get).map(compileDep)
 
 end SharedPlan
-
-trait RunPlan:
-  def exec(): Unit
-
-trait ReplPlan:
-  def repl(): Unit
-
-trait CompilePlan:
-  def classpath: (Boolean, List[String])
-
-trait CleanPlan:
-  def clean(): Unit
 
 object CleanPlan:
   def compile(module: Module)(using Settings): CleanPlan =
@@ -72,9 +74,6 @@ object CleanPlan:
       def clean(): Unit =
         println(s"[info] cleaning module ${module.name}")
         os.proc("scala", "clean", os.pwd / module.root).call()
-
-trait TestPlan:
-  def test(): Unit
 
 object TestPlan:
 
@@ -84,7 +83,7 @@ object TestPlan:
     val deps = compileDeps(module)
 
     new:
-      def test() =
+      def test(): Unit =
         val (clean, classpath) = depsClasspath(deps)
 
         if clean then doCleanModule(module)
@@ -108,7 +107,7 @@ object RunPlan:
     val deps = compileDeps(module)
 
     new:
-      def exec() =
+      def exec(): Unit =
         val (clean, classpath) = depsClasspath(deps)
 
         if clean then doCleanModule(module)
@@ -135,7 +134,7 @@ object ReplPlan:
     val deps = compileDeps(module)
 
     new:
-      def repl() =
+      def repl(): Unit =
         val (clean, classpath) = depsClasspath(deps)
 
         if clean then doCleanModule(module)

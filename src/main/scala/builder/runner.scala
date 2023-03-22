@@ -5,7 +5,7 @@ import upickle.default.*
 
 // TODO: export the build of each module to json with scala-cli.
 
-@main def runner(args: String*) =
+@main def runner(args: String*): Unit =
   ConsoleCommand.parse(args.toList) match
     case Left(err) => Console.err.println(s"[error] $err")
     case Right(command) => execCommand(command)
