@@ -7,7 +7,7 @@ import upickle.default.*
 
 @main def runner(args: String*): Unit =
   ConsoleCommand.parse(args.toList) match
-    case Left(err) => Console.err.println(s"[error] $err")
+    case Left(err) => reporter.error(err)
     case Right(command) => execCommand(command)
 
 enum ConsoleSubCommand:
@@ -43,12 +43,12 @@ object ConsoleCommand:
 
 def run()(using Settings): Unit =
   settings.config.modules.values.filter(_.kind.isInstanceOf[ModuleKind.Application]).toList match
-    case Nil => Console.err.println("[error] No application modules found")
+    case Nil => reporter.error("No application modules found")
     case app :: Nil =>
       RunPlan.compile(app) match
-        case Left(err) => Console.err.println(s"[error] $err")
+        case Left(err) => reporter.error(err)
         case Right(plan) => plan.exec()
-    case _ => Console.err.println("[error] Multiple application modules found (TODO: ask which one to run)")
+    case _ => reporter.error("Multiple application modules found (TODO: ask which one to run)")
 
 def clean()(using Settings): Unit =
   for plan <- settings.config.modules.values.map(CleanPlan.compile) do
@@ -67,10 +67,10 @@ def repl(opts: Repl)(using Settings): Unit =
     ReplPlan.compile(proj).repl()
 
 def showConfig()(using Settings): Unit =
-  println(s"[info] config:\n${write(settings.config, indent = 2)}")
+  println(write(settings.config, indent = 2))
 
 def validate()(using Settings): Unit =
-  println("[info] config is valid")
+  println("config is valid")
 
 def withSettings(command: ConsoleCommand)(body: Settings ?=> Unit): Unit =
   val buildConfig = Either.cond(
@@ -80,7 +80,7 @@ def withSettings(command: ConsoleCommand)(body: Settings ?=> Unit): Unit =
   ).flatten
 
   buildConfig match
-    case Left(error) => Console.err.println(s"[error] $error")
+    case Left(error) => reporter.error(error)
     case Right(config) =>
       body(using Settings(command.debug, config))
 

@@ -28,7 +28,7 @@ private object SharedPlan:
     new:
       def classpath: ClasspathResult =
         val (clean, dclasspath) = depsClasspath(deps)
-        println(s"[info] maybe compiling library module ${module.name}...")
+        reporter.info(s"maybe compiling library module ${module.name}...")
         if clean then doCleanModule(module)
 
         val args = ScalaCommand.makeArgs(module, SubCommand.Compile, dclasspath, "--print-class-path")
@@ -55,7 +55,7 @@ private object SharedPlan:
       case ModuleKind.Application(_) => assert(false, "application modules should not be dependencies")
 
   def doCleanModule(module: Module)(using Settings): Unit =
-    println(s"[info] dependency of ${module.name} updated, cleaning module ${module.name}...")
+    reporter.info(s"dependency of ${module.name} updated, cleaning module ${module.name}...")
     os.proc(ScalaCommand.makeArgs(module, SubCommand.Clean, Nil))
       .spawn(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit).join()
 
@@ -72,7 +72,7 @@ object CleanPlan:
   def compile(module: Module)(using Settings): CleanPlan =
     new:
       def clean(): Unit =
-        println(s"[info] cleaning module ${module.name}")
+        reporter.info(s"cleaning module ${module.name}")
         os.proc("scala", "clean", os.pwd / module.root).call()
 
 object TestPlan:
@@ -88,7 +88,7 @@ object TestPlan:
 
         if clean then doCleanModule(module)
 
-        println(s"[info] testing module ${module.name}:")
+        reporter.info(s"testing module ${module.name}:")
         val result =
           os.proc(ScalaCommand.makeArgs(module, SubCommand.Test, classpath, Nil))
             .spawn(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit)
@@ -116,7 +116,7 @@ object RunPlan:
           case None => ("with dynamic main class", "--interactive" :: Nil)
           case Some(value) => (s"with specified main class $value", "--main-class" :: value :: Nil)
 
-        println(s"[info] running module ${module.name} $mainMessage:")
+        reporter.info(s"running module ${module.name} $mainMessage:")
         val result =
           val args = ScalaCommand.makeArgs(module, SubCommand.Run, classpath, mainArgs)
           reporter.debug(s"running: ${args.mkString(" ")}")
@@ -139,7 +139,7 @@ object ReplPlan:
 
         if clean then doCleanModule(module)
 
-        println(s"[info] running module ${module.name}:")
+        reporter.info(s"running module ${module.name}:")
         val result =
           os.proc(ScalaCommand.makeArgs(module, SubCommand.Repl, classpath))
             .spawn(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit)
