@@ -14,6 +14,7 @@ enum ConsoleSubCommand:
   case Run, Clean, ShowConfig
   case Repl(project: String)
   case Test(projects: List[String])
+  case Validate
 
 case class ConsoleCommand(sub: ConsoleSubCommand, debug: Boolean)
 
@@ -36,6 +37,7 @@ object ConsoleCommand:
     case "repl" :: Nil => Left("missing project name for `repl` command")
     case "repl" :: project :: args => Right(ConsoleCommand(Repl(project), debug = args.contains("--debug")))
     case "show-config" :: args => Right(ConsoleCommand(ShowConfig, debug = args.contains("--debug")))
+    case "validate" :: args => Right(ConsoleCommand(Validate, debug = args.contains("--debug")))
     case _ => Left("Invalid command. Try `run [args]`")
 
 
@@ -65,7 +67,10 @@ def repl(opts: Repl)(using Settings): Unit =
     ReplPlan.compile(proj).repl()
 
 def showConfig()(using Settings): Unit =
-  println(s"config:\n${write(settings.config, indent = 2)}")
+  println(s"[info] config:\n${write(settings.config, indent = 2)}")
+
+def validate()(using Settings): Unit =
+  println("[info] config is valid")
 
 def withSettings(command: ConsoleCommand)(body: Settings ?=> Unit): Unit =
   val buildConfig = Either.cond(
@@ -86,4 +91,5 @@ def execCommand(command: ConsoleCommand): Unit = withSettings(command) {
     case opts @ Test(_) => test(opts)
     case opts @ Repl(_) => repl(opts)
     case ShowConfig => showConfig()
+    case Validate => validate()
 }
