@@ -1,25 +1,42 @@
 package builder
 
 import errors.*
+
 import collection.mutable
+import scala.annotation.tailrec
 
 object ModuleGraph:
 
+  def reachable(graph: Map[String, Module], target: String): Map[String, Module] =
+    // prune edges that are not reachable from target.
+    val seen = Map.newBuilder[String, Module]
+    def iterate(name: String): Unit =
+      val resolved = graph(name)
+      seen += (name -> resolved)
+      for dep <- resolved.dependsOn do
+        iterate(dep)
+
+    iterate(target)
+    seen.result()
+  end reachable
+
   def stages(graph: Map[String, Module]): List[List[Module]] =
-    val stages = mutable.ListBuffer.empty[List[Module]]
+    val lookup = graph
+
     val dependencies =
-      graph.map((k, v) => k -> v.dependsOn.to(mutable.Set))
+      lookup.map((k, v) => k -> v.dependsOn.to(mutable.Set))
 
     val reverseDeps: mutable.Map[String, mutable.Set[String]] =
       val buf = mutable.Map.empty[String, mutable.Set[String]]
-      for (k, v) <- graph do
+      for (k, v) <- lookup do
         buf.getOrElseUpdate(k, mutable.Set.empty[String])
         for dep <- v.dependsOn do
           buf.getOrElseUpdate(dep, mutable.Set.empty[String]).add(k)
       buf
 
+    @tailrec
     def iterate(s1: List[Module], acc: List[List[Module]]): List[List[Module]] =
-      var sNext = mutable.ListBuffer.empty[Module]
+      val sNext = mutable.ListBuffer.empty[Module]
       for module <- s1 do
         val ndeps = dependencies(module.name)
         for d <- ndeps.toList do
@@ -27,7 +44,7 @@ object ModuleGraph:
           ndeps -= d
           incoming -= module.name
           if incoming.isEmpty then
-            sNext += graph(d)
+            sNext += lookup(d)
           end if
       if sNext.isEmpty then
         acc
@@ -35,7 +52,7 @@ object ModuleGraph:
         val s2 = sNext.toList
         iterate(s2, s2 :: acc)
 
-    val s0 = reverseDeps.collect({ case (node, incoming) if incoming.isEmpty => graph(node) }).toList
+    val s0 = reverseDeps.collect({ case (node, incoming) if incoming.isEmpty => lookup(node) }).toList
     iterate(s0, s0 :: Nil)
   end stages
 
