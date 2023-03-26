@@ -16,6 +16,19 @@ dependsOn = ["core"]
 kind = "library" # dependents depend on the classpath output
 """
 
+val diamondAppConf = """
+[modules.bottom]
+
+[modules.left]
+dependsOn = ["bottom"]
+
+[modules.right]
+dependsOn = ["bottom"]
+
+[modules.top]
+dependsOn = ["left", "right"]
+"""
+
 class ConfigTest extends munit.FunSuite {
 
   test("parse config from valid toml") {
@@ -46,6 +59,38 @@ class ConfigTest extends munit.FunSuite {
           dependsOn = Nil
         )
       )
+    ))
+  }
+
+  test("sort module deps into stages [full-stack app]") {
+    val config = Config.parse(exampleFullStackAppConf) match
+      case Left(err) => fail(err)
+      case Right(value) => value
+
+    val stages = ModuleGraph.stages(config.modules)
+
+    val stageNames = stages.map(_.map(_.name))
+
+    assertEquals(stageNames, List(
+      List("core"),
+      List("webpage"),
+      List("webserver")
+    ))
+  }
+
+  test("sort module deps into stages [diamond]") {
+    val config = Config.parse(diamondAppConf) match
+      case Left(err) => fail(err)
+      case Right(value) => value
+
+    val stages = ModuleGraph.stages(config.modules)
+
+    val stageNames = stages.map(_.map(_.name))
+
+    assertEquals(stageNames, List(
+      List("bottom"),
+      List("left", "right"),
+      List("top")
     ))
   }
 
