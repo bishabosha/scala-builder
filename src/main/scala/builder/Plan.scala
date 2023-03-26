@@ -15,18 +15,23 @@ sealed trait ReplPlan:
 sealed trait CleanPlan:
   def clean(): Unit
 
+sealed trait Target[T]:
+  /** retrieves the target, and signals if it changed */
+  def fetch: (Boolean, T)
+
+object Target:
+  type Result[T] = (Boolean, T)
+
 private object SharedPlan:
 
-  type ClasspathResult = (Boolean, List[String])
+  trait ClasspathTarget(module: Module) extends Target[List[String]]
 
-  sealed trait DependencyPlan:
-    def classpath: ClasspathResult
-
-  private def compileLibrary(module: Module)(using Settings): DependencyPlan =
+  private def compileLibrary(module: Module)(using Settings): ClasspathTarget =
     val deps = compileDeps(module)
 
-    new:
-      def classpath: ClasspathResult =
+    new ClasspathTarget(module):
+
+      def fetch: Target.Result[List[String]] =
         val (clean, dclasspath) = depsClasspath(deps)
         reporter.info(s"maybe compiling library module ${module.name}...")
         if clean then doCleanModule(module)
@@ -40,15 +45,15 @@ private object SharedPlan:
         val mclasspath = res.out.lines().head.split(":").toList.distinct.sorted
 
         (downstreamClean, mclasspath)
-      end classpath
+      end fetch
     end new
   end compileLibrary
 
-  private def compileResource(module: Module)(using Settings): DependencyPlan =
-    new:
-      def classpath: ClasspathResult = (false, Nil)
+  private def compileResource(module: Module)(using Settings): ClasspathTarget =
+    new ClasspathTarget(module):
+      def fetch: Target.Result[List[String]] = (false, Nil)
 
-  private def compileDep(module: Module)(using Settings): DependencyPlan =
+  private def compileDep(module: Module)(using Settings): ClasspathTarget =
     module.kind match
       case ModuleKind.Library => compileLibrary(module)
       case ModuleKind.Resource => compileResource(module)
@@ -59,11 +64,11 @@ private object SharedPlan:
     os.proc(ScalaCommand.makeArgs(module, SubCommand.Clean, Nil))
       .spawn(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit).join()
 
-  def depsClasspath(deps: List[DependencyPlan]): (Boolean, List[String]) =
-    val (cleans, classpaths) = deps.map(_.classpath).unzip
+  def depsClasspath(deps: List[ClasspathTarget]): (Boolean, List[String]) =
+    val (cleans, classpaths) = deps.map(_.fetch).unzip
     (cleans.exists(identity), classpaths.flatten.distinct.sorted)
 
-  def compileDeps(module: Module)(using Settings): List[DependencyPlan] =
+  def compileDeps(module: Module)(using Settings): List[ClasspathTarget] =
     module.dependsOn.flatMap(settings.config.modules.get).map(compileDep)
 
 end SharedPlan
