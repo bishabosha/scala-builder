@@ -10,18 +10,23 @@ object ScalaCommand:
   enum SubCommand:
     case Clean, Compile, Test, Run, Repl
 
-    def commandString(module: Module)(using Settings): Shellable = this match
-      case Run => "run" :: globalScalaVersionArgs
-      case Compile => "compile" :: globalScalaVersionArgs
-      case Test => "test" :: globalScalaVersionArgs
-      case Repl => "repl" :: globalScalaVersionArgs
-      case Clean => "clean"
+    def commandString(module: Module)(rest: Settings ?=> List[Shellable])(using Settings): List[Shellable] = this match
+      case Run => "run" :: rest
+      case Compile => "compile" :: rest
+      case Test => "test" :: rest
+      case Repl => "repl" :: rest
+      case Clean => "clean" :: Nil
 
   def makeArgs(module: Module, subcommand: SubCommand, classpath: List[String], extraArgs: Shellable*)(using Settings): List[os.Shellable] =
+    val workspace = os.pwd / module.root
     List(
       "scala",
-      subcommand.commandString(module),
-      (if classpath.nonEmpty then "--classpath" :: classpath.mkString(":") :: Nil else Nil),
-      extraArgs,
-      os.pwd / module.root,
+      subcommand.commandString(module)(
+        List(
+          (if classpath.nonEmpty then "--classpath" :: classpath.mkString(":") :: Nil else Nil),
+          "--workspace", workspace,
+          extraArgs,
+        )
+      ),
+      workspace,
     )
