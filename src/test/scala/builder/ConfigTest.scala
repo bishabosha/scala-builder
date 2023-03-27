@@ -1,5 +1,7 @@
 package builder
 
+import builder.errors.Result
+
 class ConfigTest extends munit.FunSuite {
 
   val exampleFullStackAppConf = """
@@ -18,11 +20,14 @@ class ConfigTest extends munit.FunSuite {
   kind = "library" # dependents depend on the classpath output
   """
 
+  extension [T](result: Result[T, String])
+    def orFail: T = result match
+      case Result.Success(value) => value
+      case Result.Failure(err) => fail(s"failed result: $err")
+
   test("parse config from valid toml") {
 
-    val config = Config.parse(exampleFullStackAppConf) match
-      case Left(err) => fail(err)
-      case Right(value) => value
+    val config = Config.parse(exampleFullStackAppConf).orFail
 
     assertEquals(config, Config(
       scalaVersion = Some("3.2.2"),
@@ -51,9 +56,7 @@ class ConfigTest extends munit.FunSuite {
 
   def stageTest(name: munit.TestOptions)(rawConfig: String, target: Option[String], expected: List[List[String]])(using munit.Location) = {
     test(name) {
-      val config = Config.parse(rawConfig) match
-        case Left(err) => fail(err)
-        case Right(value) => value
+      val config = Config.parse(rawConfig).orFail
 
       val stages = target match
         case None => ModuleGraph.stages(config.modules)

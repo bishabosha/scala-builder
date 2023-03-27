@@ -2,6 +2,8 @@ package builder
 
 import ScalaCommand.SubCommand
 import SharedPlan.*
+import builder.errors.Result
+import builder.errors.failure
 
 sealed trait RunPlan:
   def exec(): Unit
@@ -103,10 +105,10 @@ object TestPlan:
 
 object RunPlan:
 
-  def compile(module: Module)(using Settings): Either[String, RunPlan] =
+  def compile(module: Module)(using Settings): Result[RunPlan, String] = Result:
     module.kind match
-      case app @ ModuleKind.Application(_) => Right(compileApplication(module, app))
-      case _ => Left(s"module ${module.name} is not an application module")
+      case app @ ModuleKind.Application(_) => compileApplication(module, app)
+      case _ => failure(s"module ${module.name} is not an application module")
 
   private def compileApplication(module: Module, app: ModuleKind.Application)(using Settings): RunPlan =
     val deps = compileDeps(module)
