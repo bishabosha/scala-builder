@@ -9,10 +9,10 @@ import builder.errors.*
 
 @main def runner(args: String*): Unit =
   Result:
-    execCommand(ConsoleCommand.parse(args.toList).?)
+    execCommand(ConsoleCommand.parse(args.toList).?).?
   .match
     case Result.Failure(err) => reporter.error(err)
-    case Result.Success(_) =>
+    case Result.Success(()) => ()
 
 enum ConsoleSubCommand:
   case Run, Clean, ShowConfig
@@ -47,11 +47,12 @@ object ConsoleCommand:
         case _ => failure("Invalid command. Try `run [args]`")
 
 
-def run()(using Settings)(using CanError[String]): Unit =
-  settings.config.modules.values.filter(_.kind.isInstanceOf[ModuleKind.Application]).toList match
-    case Nil => failure("No application modules found")
-    case app :: Nil => RunPlan.compile(app).?.exec()
-    case _ => failure("Multiple application modules found (TODO: ask which one to run)")
+def run()(using Settings): Result[Unit, String] =
+  Result:
+    settings.config.modules.values.filter(_.kind.isInstanceOf[ModuleKind.Application]).toList match
+      case Nil => failure("No application modules found")
+      case app :: Nil => RunPlan.compile(app).?.exec()
+      case _ => failure("Multiple application modules found (TODO: ask which one to run)")
 
 def clean()(using Settings): Unit =
   for plan <- settings.config.modules.values.map(CleanPlan.compile) do
@@ -82,13 +83,14 @@ def parseConfig: Result[Config, String] =
     else
       failure("No builder.toml file found in current directory")
 
-def execCommand(command: ConsoleCommand)(using CanError[String]): Unit =
-  given Settings = Settings(command.debug, parseConfig.?)
-  command.sub match
-    case Run => run()
-    case Clean => clean()
-    case opts @ Test(_) => test(opts)
-    case opts @ Repl(_) => repl(opts)
-    case ShowConfig => showConfig()
-    case Validate => validate()
-
+def execCommand(command: ConsoleCommand): Result[Unit, String] =
+  Result:
+    val settings = Settings(command.debug, parseConfig.?)
+    given Settings = settings
+    command.sub match
+      case Run => run().?
+      case Clean => clean()
+      case opts @ Test(_) => test(opts)
+      case opts @ Repl(_) => repl(opts)
+      case ShowConfig => showConfig()
+      case Validate => validate()

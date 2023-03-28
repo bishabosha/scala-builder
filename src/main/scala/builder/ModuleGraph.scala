@@ -79,7 +79,7 @@ object ModuleGraph:
           case _ => failure(s"module '${node.name}' depends on '$dep' which does not exist.")
         )
         visiting.remove(node.name)
-        seen.add(node.name)
+        seen.addOne(node.name)
       else
         ()
     end visit

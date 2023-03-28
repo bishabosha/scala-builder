@@ -63,7 +63,7 @@ private object SharedPlan:
 
   def doCleanModule(module: Module)(using Settings): Unit =
     reporter.info(s"dependency of ${module.name} updated, cleaning module ${module.name}...")
-    os.proc(ScalaCommand.makeArgs(module, SubCommand.Clean, Nil))
+    val exit = os.proc(ScalaCommand.makeArgs(module, SubCommand.Clean, Nil))
       .spawn(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit).join()
 
   def depsClasspath(deps: List[ClasspathTarget]): (Boolean, List[String]) =
@@ -80,7 +80,7 @@ object CleanPlan:
     new:
       def clean(): Unit =
         reporter.info(s"cleaning module ${module.name}")
-        os.proc("scala", "clean", os.pwd / module.root).call()
+        val result = os.proc("scala", "clean", os.pwd / module.root).call()
 
 object TestPlan:
 
