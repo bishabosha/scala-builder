@@ -1,4 +1,5 @@
 package builder
+
 object reporter:
   inline def debug(inline msg: String)(using Settings): Unit =
     if settings.debug then Console.err.println(s"[debug] $msg")

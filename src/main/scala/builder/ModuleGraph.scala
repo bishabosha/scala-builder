@@ -7,16 +7,23 @@ import scala.annotation.tailrec
 
 object ModuleGraph:
 
-  def reachable(graph: Map[String, Module], target: String): Map[String, Module] =
+  def reachable(graph: Map[String, Module], targets: Set[Module], excludeTarget: Boolean): Map[String, Module] =
     // prune edges that are not reachable from target.
     val seen = Map.newBuilder[String, Module]
+
     def iterate(name: String): Unit =
       val resolved = graph(name)
       seen += (name -> resolved)
       for dep <- resolved.dependsOn do
         iterate(dep)
 
-    iterate(target)
+    if !excludeTarget then
+      for target <- targets do
+        iterate(target.name)
+    else
+      val commonDeps = targets.flatMap(_.dependsOn)
+      for dep <- commonDeps do
+        iterate(dep)
     seen.result()
   end reachable
 
@@ -57,14 +64,9 @@ object ModuleGraph:
   end stages
 
 
-  def checkValid[T](graph: Map[String, Module])(using CanError[String]): Unit =
+  def assemble[T](modules: List[Module]): Result[Map[String, Module], String] = Result:
     // prove not cyclic, if cyclic return error, else return None
-
-    val lookup =
-      for (k, v) <- graph if k != v.name do
-        failure(s"module graph key '$k' mismatches its value '${v.name}'.")
-      graph
-
+    val lookup = Map.from(modules.view.map(module => module.name -> module))
     val seen = mutable.Set.empty[String]
     val visiting = mutable.Set.empty[String]
     def visit(node: Module, from: Module | Null): Unit =
@@ -74,13 +76,13 @@ object ModuleGraph:
         failure(s"module graph is invalid: module '$fromName' has a cyclic dependency on $onMessage")
       else if !seen.contains(node.name) then
         visiting.add(node.name)
-        node.dependsOn.foreach(dep => lookup.get(dep) match
+        for dep <- node.dependsOn do lookup.get(dep) match
           case Some(module) => visit(module, node)
           case _ => failure(s"module '${node.name}' depends on '$dep' which does not exist.")
-        )
         visiting.remove(node.name)
         seen.addOne(node.name)
       else
         ()
     end visit
     lookup.values.foreach(visit(_, null))
+    lookup

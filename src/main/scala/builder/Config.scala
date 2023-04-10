@@ -14,40 +14,38 @@ object Config:
   private def readConfig(table: Tbl): Result[Config, String] =
     Result:
       Config(
-        scalaVersion = table.values.get("scalaVersion").flatMap({
-          case Str(value) => Some(value)
+        scalaVersion = table.values.get("scalaVersion").map({
+          case Str(value) => value
           case _ => failure("scalaVersion must be a string")
         }),
         modules = table.values.get("modules").map({
           case Tbl(values) =>
-            val parsed = values.toList.map(readModule)
-            val graph = parsed.map(module => module.name -> module).toMap
-            ModuleGraph.checkValid(graph)
-            graph
+            val parsed = values.view.map(readModule.tupled.?)
+            ModuleGraph.assemble(parsed.toList).?
           case _ => failure("modules must be a table")
         }).getOrElse(Map.empty)
       )
 
-  private def readModule[T](key: String, value: toml.Value)(using CanError[String]): Module =
+  private def readModule[T](key: String, value: toml.Value): Result[Module, String] = Result:
     value match
       case Tbl(values) =>
-        val root = values.get("root").flatMap({
-          case Str(value) => Some(value)
+        val root = values.get("root").map({
+          case Str(value) => value
           case _ => failure(s"modules.${key}.root must be a string")
         }).getOrElse(key)
-        val kind = values.get("kind").flatMap({
-          case Str(value) => Some(value)
+        val kind = values.get("kind").map({
+          case Str(value) => value
           case _ => failure(s"modules.${key}.kind must be a string")
         }).getOrElse("library")
-        val dependsOn = values.get("dependsOn").flatMap({
-          case Arr(values) => Some(values.flatMap({
-            case Str(value) => Some(value)
+        val dependsOn = values.get("dependsOn").map({
+          case Arr(values) => values.map({
+            case Str(value) => value
             case _ => failure(s"modules.${key}.dependsOn must be a list of strings")
-          }))
+          })
           case _ => failure(s"modules.${key}.dependsOn must be a list of strings")
         }).getOrElse(Nil)
-        val mainClass = values.get("mainClass").flatMap({
-          case Str(value) => Some(value)
+        val mainClass = values.get("mainClass").map({
+          case Str(value) => value
           case _ => failure(s"modules.${key}.mainClass must be a string")
         })
         val moduleKind = kind match

@@ -54,13 +54,19 @@ class ConfigTest extends munit.FunSuite {
     ))
   }
 
-  def stageTest(name: munit.TestOptions)(rawConfig: String, target: Option[String], expected: List[List[String]])(using munit.Location) = {
+  def stageTest(name: munit.TestOptions)(rawConfig: String, targets: Set[String], expected: List[List[String]])(using munit.Location) = {
     test(name) {
       val config = Config.parse(rawConfig).orFail
 
-      val stages = target match
-        case None => ModuleGraph.stages(config.modules)
-        case Some(value) => ModuleGraph.stages(ModuleGraph.reachable(config.modules, value))
+      val stages = ModuleGraph.stages(
+        if targets.isEmpty then config.modules
+        else
+          ModuleGraph.reachable(
+            graph = config.modules,
+            targets = targets.map(config.modules),
+            excludeTarget = false
+          )
+      )
 
       val stageNames = stages.map(_.map(_.name))
 
@@ -70,7 +76,7 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [full-stack app]")(
     rawConfig = exampleFullStackAppConf,
-    target = None,
+    targets = Set(),
     expected = List(
       List("core"),
       List("webpage"),
@@ -93,7 +99,7 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [diamond]")(
     rawConfig = diamondAppConf,
-    target = None,
+    targets = Set(),
     expected = List(
       List("bottom"),
       List("left", "right"),
@@ -103,7 +109,7 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [diamond, filtered]")(
     rawConfig = diamondAppConf,
-    target = Some("right"),
+    targets = Set("right"),
     expected = List(
       List("bottom"),
       List("right"),
@@ -125,7 +131,7 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [chain]")(
     rawConfig = chainAppConf,
-    target = None,
+    targets = Set(),
     expected = List(
       List("D"),
       List("C"),
@@ -136,7 +142,7 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [chain, filtered-D]")(
     rawConfig = chainAppConf,
-    target = Some("D"),
+    targets = Set("D"),
     expected = List(
       List("D"),
     )
@@ -144,7 +150,7 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [chain, filtered-C]")(
     rawConfig = chainAppConf,
-    target = Some("C"),
+    targets = Set("C"),
     expected = List(
       List("D"),
       List("C"),
@@ -153,7 +159,7 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [chain, filtered-B]")(
     rawConfig = chainAppConf,
-    target = Some("B"),
+    targets = Set("B"),
     expected = List(
       List("D"),
       List("C"),
@@ -163,7 +169,7 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [chain, filtered-A]")(
     rawConfig = chainAppConf,
-    target = Some("A"),
+    targets = Set("A"),
     expected = List(
       List("D"),
       List("C"),
@@ -191,7 +197,7 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [forked]")(
     rawConfig = forkedAppConf,
-    target = None,
+    targets = Set(),
     expected = List(
       List("common"),
       List("libA", "libB"),
@@ -201,11 +207,30 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [forked, filtered-topA]")(
     rawConfig = forkedAppConf,
-    target = Some("topA"),
+    targets = Set("topA"),
     expected = List(
       List("common"),
       List("libA"),
       List("topA"),
+    )
+  )
+
+  stageTest("sort module deps into stages [forked, filtered-topA+topB]")(
+    rawConfig = forkedAppConf,
+    targets = Set("topA", "topB"),
+    expected = List(
+      List("common"),
+      List("libA", "libB"),
+      List("topA", "topB"),
+    )
+  )
+
+  stageTest("sort module deps into stages [forked, filtered-libA+libB]")(
+    rawConfig = forkedAppConf,
+    targets = Set("libA", "libB"),
+    expected = List(
+      List("common"),
+      List("libA", "libB"),
     )
   )
 

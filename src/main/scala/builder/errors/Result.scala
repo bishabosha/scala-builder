@@ -14,3 +14,12 @@ object Result:
   inline def apply[T, E](inline body: CanError[E] ?=> T): Result[T, E] =
     boundary:
       Result.Success(body)
+
+  inline def attempt[T](inline body: => T): Result[T, Exception] =
+    try Result.Success(body)
+    catch case e: Exception => Result.Failure(e)
+
+  extension [T, E <: Exception](result: Result[T, E])
+    inline def resolve[E1](inline onError: E => E1): Result[T, E1] = result match
+      case succ @ Success(value) => succ
+      case Failure(error) => Failure(onError(error))
