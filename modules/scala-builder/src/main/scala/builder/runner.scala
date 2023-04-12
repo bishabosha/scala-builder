@@ -16,7 +16,8 @@ import builder.ScalaCommand.SubCommand
     case Result.Success(()) => ()
 
 enum ConsoleSubCommand:
-  case Run, Clean, ShowConfig
+  case Clean, ShowConfig
+  case Run(project: Option[String])
   case Repl(project: String)
   case Test(projects: List[String])
   case Validate
@@ -37,7 +38,13 @@ object ConsoleCommand:
   def parse(args: List[String]): Result[ConsoleCommand, String] =
     Result:
       args match
-        case "run" :: args => ConsoleCommand(Run, debug = bool(args, "--debug"), sequential = bool(args, "--sequential"))
+        case "run" :: args =>
+          val (project, args1) = args match
+            case arg :: rest if !arg.startsWith("-") =>
+              (Some(arg), rest)
+            case _ =>
+              (None, args)
+          ConsoleCommand(Run(project), debug = bool(args1, "--debug"), sequential = bool(args1, "--sequential"))
         case "clean" :: args => ConsoleCommand(Clean, debug = args.contains("--debug"), sequential = bool(args, "--sequential"))
         case "test" :: args =>
           val (projects, args1) = args match
@@ -55,17 +62,28 @@ object ConsoleCommand:
 
 end ConsoleCommand
 
-def run()(using Settings): Result[Unit, String] = Result:
-  settings.config.modules.values.filter(_.kind.isInstanceOf[ModuleKind.Application]).toList match
-    case Nil => failure("No application modules found")
-    case app :: Nil =>
-      val plan = Plan.compile(Set(app), SubCommand.Run).?
-      val initialState = parseCache.?
-      val finalResult = plan.exec(initialState).?
-      writeCache(finalResult).?
-      Tasks.run(app, app.kind.asInstanceOf[ModuleKind.Application], finalResult).?
+def run(project: Option[String])(using Settings): Result[Unit, String] =
+  def doRun(app: Module) = Result:
+    val plan = Plan.compile(Set(app), SubCommand.Run).?
+    val initialState = parseCache.?
+    val finalResult = plan.exec(initialState).?
+    writeCache(finalResult).?
+    Tasks.run(app, app.kind.asInstanceOf[ModuleKind.Application], finalResult).?
 
-    case _ => failure("Multiple application modules found (TODO: ask which one to run)")
+  Result:
+    settings.config.modules.values.filter(_.kind.isInstanceOf[ModuleKind.Application]).toList match
+      case Nil => failure("No application modules found")
+      case apps =>
+        project match
+          case Some(name) =>
+            apps.find(_.name == name) match
+              case Some(app) => doRun(app).?
+              case None => failure(s"No application module found for name $name")
+          case None =>
+            apps match
+              case app :: Nil => doRun(app).?
+              case _ =>
+                failure(s"Multiple application modules found (${apps.map(_.name).mkString(", ")}), please specify one with `run <name>`")
 end run
 
 def clean()(using Settings): Result[Unit, String] =
@@ -143,7 +161,7 @@ def execCommand(command: ConsoleCommand): Result[Unit, String] =
     val settings = Settings(command.debug, command.sequential, parseConfig.?)
     given Settings = settings
     command.sub match
-      case Run => run().?
+      case Run(project) => run(project).?
       case Clean => clean().?
       case opts @ Repl(_) => repl(opts).?
       case opts @ Test(_) => test(opts).?
