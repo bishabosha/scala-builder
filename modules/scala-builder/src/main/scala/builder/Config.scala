@@ -51,7 +51,6 @@ object Config:
         val moduleKind = kind match
           case "library" => ModuleKind.Library
           case "application" => ModuleKind.Application(mainClass = mainClass)
-          case "resource" => ModuleKind.Resource
           case _ => failure(s"unknown module kind for modules.${key}.kind: $kind")
         if !moduleKind.isInstanceOf[ModuleKind.Application] && mainClass.nonEmpty then
           failure(s"modules.${key}.mainClass is only valid for application modules")
@@ -77,5 +76,5 @@ case class Module(
 ) derives Writer
 
 enum ModuleKind derives Writer:
-  case Library, Resource
+  case Library
   case Application(mainClass: Option[String])

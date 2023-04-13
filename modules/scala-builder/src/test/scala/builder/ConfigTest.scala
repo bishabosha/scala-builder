@@ -1,6 +1,8 @@
 package builder
 
 import builder.errors.Result
+import builder.targets.TargetGraph
+import builder.ScalaCommand.SubCommand
 
 class ConfigTest extends munit.FunSuite {
 
@@ -9,11 +11,12 @@ class ConfigTest extends munit.FunSuite {
 
   [modules.webserver]
   kind = "application" # cannot be depended on by other modules
-  mainClass = "com.example.Main"
-  dependsOn = ["core", "webpage"]
+  mainClass = "example.WebServer"
+  dependsOn = ["core"]
 
   [modules.webpage]
-  kind = "resource" # dependends depend on the packaged output
+  kind = "application"
+  mainClass = "example.webpage"
   dependsOn = ["core"]
 
   [modules.core]
@@ -35,13 +38,13 @@ class ConfigTest extends munit.FunSuite {
         "webserver" -> Module(
           name = "webserver",
           root = "webserver",
-          kind = ModuleKind.Application(mainClass = Some("com.example.Main")),
-          dependsOn = List("core", "webpage")
+          kind = ModuleKind.Application(mainClass = Some("example.WebServer")),
+          dependsOn = List("core")
         ),
         "webpage" -> Module(
           name = "webpage",
           root = "webpage",
-          kind = ModuleKind.Resource,
+          kind = ModuleKind.Application(mainClass = Some("example.webpage")),
           dependsOn = List("core")
         ),
         "core" -> Module(
@@ -54,33 +57,42 @@ class ConfigTest extends munit.FunSuite {
     ))
   }
 
-  def stageTest(name: munit.TestOptions)(rawConfig: String, targets: Set[String], expected: List[List[String]])(using munit.Location) = {
+  def stageTest(name: munit.TestOptions)(rawConfig: String, command: SubCommand, targets: Seq[String], expected: List[List[String]])(using munit.Location) = {
     test(name) {
       val config = Config.parse(rawConfig).orFail
 
-      val stages = ModuleGraph.stages(
-        if targets.isEmpty then config.modules
-        else
-          ModuleGraph.reachable(
-            graph = config.modules,
-            targets = targets.map(config.modules),
-            excludeTarget = false
-          )
-      )
+      val targetGraph =
+        TargetGraph.compile(
+          graph = config.modules,
+          targetModules =
+            if targets.isEmpty then config.modules.values.toList
+            else targets.map(config.modules).toList,
+          command
+        ).orFail
 
-      val stageNames = stages.map(_.map(_.name))
+      val targetNames = targetGraph.stages.map(_.map(_.show))
 
-      assertEquals(stageNames, expected)
+      assertEquals(targetNames, expected)
     }
   }
 
-  stageTest("sort module deps into stages [full-stack app]")(
+  stageTest("sort module deps into stages [full-stack app, run]")(
     rawConfig = exampleFullStackAppConf,
-    targets = Set(),
+    command = SubCommand.Run,
+    targets = Seq("webserver"),
     expected = List(
-      List("core"),
-      List("webpage"),
-      List("webserver")
+      List("core:main"),
+      List("webserver:runner")
+    )
+  )
+
+  stageTest("sort module deps into stages [full-stack app, repl]")(
+    rawConfig = exampleFullStackAppConf,
+    command = SubCommand.Repl,
+    targets = Seq("webserver"),
+    expected = List(
+      List("core:main"),
+      List("webserver:main")
     )
   )
 
@@ -99,20 +111,22 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [diamond]")(
     rawConfig = diamondAppConf,
-    targets = Set(),
+    command = SubCommand.Repl,
+    targets = Seq(),
     expected = List(
-      List("bottom"),
-      List("left", "right"),
-      List("top")
+      List("bottom:main"),
+      List("left:main", "right:main"),
+      List("top:main")
     )
   )
 
   stageTest("sort module deps into stages [diamond, filtered]")(
     rawConfig = diamondAppConf,
-    targets = Set("right"),
+    command = SubCommand.Repl,
+    targets = Seq("right"),
     expected = List(
-      List("bottom"),
-      List("right"),
+      List("bottom:main"),
+      List("right:main"),
     )
   )
 
@@ -131,50 +145,55 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [chain]")(
     rawConfig = chainAppConf,
-    targets = Set(),
+    command = SubCommand.Repl,
+    targets = Seq(),
     expected = List(
-      List("D"),
-      List("C"),
-      List("B"),
-      List("A"),
+      List("D:main"),
+      List("C:main"),
+      List("B:main"),
+      List("A:main"),
     )
   )
 
   stageTest("sort module deps into stages [chain, filtered-D]")(
     rawConfig = chainAppConf,
-    targets = Set("D"),
+    command = SubCommand.Repl,
+    targets = Seq("D"),
     expected = List(
-      List("D"),
+      List("D:main"),
     )
   )
 
   stageTest("sort module deps into stages [chain, filtered-C]")(
     rawConfig = chainAppConf,
-    targets = Set("C"),
+    command = SubCommand.Repl,
+    targets = Seq("C"),
     expected = List(
-      List("D"),
-      List("C"),
+      List("D:main"),
+      List("C:main"),
     )
   )
 
   stageTest("sort module deps into stages [chain, filtered-B]")(
     rawConfig = chainAppConf,
-    targets = Set("B"),
+    command = SubCommand.Repl,
+    targets = Seq("B"),
     expected = List(
-      List("D"),
-      List("C"),
-      List("B"),
+      List("D:main"),
+      List("C:main"),
+      List("B:main"),
     )
   )
 
   stageTest("sort module deps into stages [chain, filtered-A]")(
     rawConfig = chainAppConf,
-    targets = Set("A"),
+    command = SubCommand.Repl,
+    targets = Seq("A"),
     expected = List(
-      List("D"),
-      List("C"),
-      List("B"),
-      List("A"),
+      List("D:main"),
+      List("C:main"),
+      List("B:main"),
+      List("A:main"),
     )
   )
 
@@ -197,40 +216,44 @@ class ConfigTest extends munit.FunSuite {
 
   stageTest("sort module deps into stages [forked]")(
     rawConfig = forkedAppConf,
-    targets = Set(),
+    command = SubCommand.Repl,
+    targets = Seq(),
     expected = List(
-      List("common"),
-      List("libA", "libB"),
-      List("topA", "topB"),
+      List("common:main"),
+      List("libA:main", "libB:main"),
+      List("topA:main", "topB:main"),
     )
   )
 
   stageTest("sort module deps into stages [forked, filtered-topA]")(
     rawConfig = forkedAppConf,
-    targets = Set("topA"),
+    command = SubCommand.Repl,
+    targets = Seq("topA"),
     expected = List(
-      List("common"),
-      List("libA"),
-      List("topA"),
+      List("common:main"),
+      List("libA:main"),
+      List("topA:main"),
     )
   )
 
   stageTest("sort module deps into stages [forked, filtered-topA+topB]")(
     rawConfig = forkedAppConf,
-    targets = Set("topA", "topB"),
+    command = SubCommand.Repl,
+    targets = Seq("topA", "topB"),
     expected = List(
-      List("common"),
-      List("libA", "libB"),
-      List("topA", "topB"),
+      List("common:main"),
+      List("libA:main", "libB:main"),
+      List("topA:main", "topB:main"),
     )
   )
 
   stageTest("sort module deps into stages [forked, filtered-libA+libB]")(
     rawConfig = forkedAppConf,
-    targets = Set("libA", "libB"),
+    command = SubCommand.Repl,
+    targets = Seq("libA", "libB"),
     expected = List(
-      List("common"),
-      List("libA", "libB"),
+      List("common:main"),
+      List("libA:main", "libB:main"),
     )
   )
 

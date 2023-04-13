@@ -24,21 +24,20 @@ sealed trait Plan:
 object Plan:
 
   def compile(targetModules: Set[Module], subcommand: SubCommand)(using Settings): Result[Plan, String] = Result:
-    val graph = ModuleGraph.reachable(
-      settings.config.modules,
-      targetModules,
-      excludeTarget = subcommand == SubCommand.Test
-    )
-    val stages = ModuleGraph.stages(graph)
+    val graph = TargetGraph.compile(settings.config.modules, targetModules.toSeq, subcommand).?
+    val stages = graph.stages
+
+    reporter.debug(s"compilation plan for command ${subcommand} ${targetModules.map(_.name).mkString(", ")}:\n${graph.show}")
+
+    def lookup(name: String) = settings.config.modules(name)
 
     val stepss = stages.map: stage =>
-      val steps: List[Step] = stage.map: module =>
-        module.kind match
-          case ModuleKind.Library => CompileScalaStep.of(module).?
-          case info @ ModuleKind.Application(_) => subcommand match
-            case SubCommand.Run => RunScalaStep.of(module, info).?
-            case _ => CompileScalaStep.of(module).?
-          case _ => failure(s"module ${module.name} is not a library or application")
+      val steps: List[Step] = stage.map: target =>
+        target.kind match
+          case TargetKind.Library => CompileScalaStep(lookup(target.module))
+          case TargetKind.Application =>
+            val module = lookup(target.module)
+            RunScalaStep(module, module.kind.asInstanceOf[ModuleKind.Application])
       steps
 
     if settings.sequential then

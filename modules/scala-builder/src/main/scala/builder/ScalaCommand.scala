@@ -13,19 +13,19 @@ object ScalaCommand:
     def commandString(module: Module)(rest: Settings ?=> List[Shellable])(using Settings): List[Shellable]
 
   enum InternalCommand extends CommandReader:
-    case ExportJson
+    case ExportJson, Compile
 
     def commandString(module: Module)(rest: Settings ?=> List[Shellable])(using Settings): List[Shellable] = this match
       case ExportJson => List("--power", "export", "--json", rest)
+      case Compile => "compile" :: rest
 
 
 
   enum SubCommand extends CommandReader:
-    case Clean, Compile, Test, Run, Repl
+    case Clean, Test, Run, Repl
 
     def commandString(module: Module)(rest: Settings ?=> List[Shellable])(using Settings): List[Shellable] = this match
       case Run => "run" :: rest
-      case Compile => "compile" :: rest
       case Test => "test" :: rest
       case Repl => "repl" :: rest
       case Clean => "clean" :: Nil
