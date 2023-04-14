@@ -173,7 +173,7 @@ case class Targets(graph: Map[String, TargetContext]) derives ReadWriter:
       update
     )
     extension (st: TargetState) def targetKind: TargetKind = st match
-      case TargetState.Library(_, platform, _, _) => TargetKind.Library(platform)
+      case TargetState.Library(_, platform, _, _, _, _) => TargetKind.Library(platform)
       case TargetState.Application(_, _) => TargetKind.Application
       case TargetState.Package(_, _) => TargetKind.Package
 
@@ -211,11 +211,11 @@ case class TargetContext(projects: Map[PlatformKind, ujson.Value], targets: Set[
 
 /** A target is a cacheable entity, associated with a module */
 enum TargetState(val token: TargetId) derives ReadWriter:
-  case Library(inputHash: String, platform: PlatformKind, depsClasspath: List[String], outClasspath: List[String]) extends TargetState(TargetId())
+  case Library(inputHash: String, platform: PlatformKind, depsDependencies: List[String], depsClasspath: List[String], outDependencies: List[String], outClasspath: List[String]) extends TargetState(TargetId())
   case Application(inputHash: String, outCommand: List[String]) extends TargetState(TargetId())
   case Package(inputHash: String, outPath: String) extends TargetState(TargetId())
 
   def describe(name: String): String = this match
-    case TargetState.Library(_, platform, _, _) => s"scala library target $name:main:$platform"
+    case TargetState.Library(_, platform, _, _, _, _) => s"scala library target $name:main:$platform"
     case TargetState.Application(_, _) => s"scala application target $name:runner"
     case TargetState.Package(_, _) => s"package target $name:package"

@@ -20,14 +20,36 @@ private[targets] object Shared:
     .resolve:
       case err: IOException => s"failed to create directory $path: ${err.getMessage}"
 
-  def readStructure(module: Module, platform: PlatformKind, classpath: List[String])(using Settings): Result[ujson.Value, String] =
+  def readStructure(module: Module, platform: PlatformKind, dependencies: List[String], classpath: List[String])(using Settings): Result[ujson.Value, String] =
     Result:
-      val args = ScalaCommand.makeArgs(module, InternalCommand.ExportJson, classpath, platform)
+      // TODO: actually do not pass in dependencies to `scala` command, otherwise there is not a way to
+      // distinguish between declared dependencies and transitive dependencies.
+      // However that will mean tracking changes in dependencies in each step.
+      val args = ScalaCommand.makeArgs(module, InternalCommand.ExportJson, classpath, dependencies, platform)
       val result = ScalaCommand.call(args).?
       if result.exitCode != 0 then
         failure(s"failed to read structure of module ${module.name}: ${result.err.lines().mkString("\n")}")
       else
         ujson.read(result.out.text())
+
+  def dependencies(project: ujson.Value, scope: String): Result[List[String], String] =
+    def dependency(value: ujson.Value): Option[String] = optional:
+      val groupId = value.obj.get("groupId").?.str
+      val fullName =
+        val artifactId = value.obj.get("artifactId").?
+        artifactId.obj.get("fullName").?.str
+      val version = value.obj.get("version").?.str
+      s"$groupId:$fullName:$version"
+
+    val dependencies =
+      optional:
+        val scopesObj = project.obj.get("scopes").?
+        val scopeObj = scopesObj.obj.get(scope).?
+        val dependencies = scopeObj.obj.get("dependencies").?
+        dependencies.arr.toList.map(dependency.?)
+
+    dependencies.asSuccess("failed to read dependencies")
+  end dependencies
 
   def hash(module: Module, project: ujson.Value, scopes: Set[String]): Result[String, String] =
     val md = MessageDigest.getInstance("SHA-1")
@@ -38,11 +60,17 @@ private[targets] object Shared:
       .resolve:
         case err: IOException => s"failed to hash file ${path}: ${err.getMessage}"
 
+    def parseScopedSources = optional:
+      val scopesObj = project.obj.get("scopes").?
+      val scopeObjs = scopes.toList.map(scopesObj.obj.get.?)
+      val sourceArrs = scopeObjs.map(_.obj.get("sources").?.arr)
+      sourceArrs
+
     Result:
+      val scopedSources = parseScopedSources.asSuccess("failed to read sources").?
       for
-        scopesObj <- project.obj.get("scopes")
-        scope <- scopes.toList.flatMap(scopesObj.obj.get)
-        source <- scope("sources").arr
+        scope <- scopedSources
+        source <- scope
       do
         val bytes = readFile(source.str).?
         md.update(bytes)
@@ -67,7 +95,7 @@ private[targets] object Shared:
         reporter.debug(s"dependency of ${module.name} updated, cleaning module ${module.name}...")
       else
         reporter.info(s"cleaning module ${module.name}...")
-      val args = ScalaCommand.makeArgs(module, SubCommand.Clean, Nil, PlatformKind.jvm)
+      val args = ScalaCommand.makeArgs(module, SubCommand.Clean, Nil, Nil, PlatformKind.jvm)
       val result = ScalaCommand.call(args).?
       if result.exitCode != 0 then
         failure(s"failed to clean module ${module.name}: ${result.err.lines().mkString("\n")}")

@@ -33,7 +33,7 @@ object ScalaCommand:
       case Repl => "repl" :: rest
       case Clean => "clean" :: Nil
 
-  def makeArgs(module: Module, subcommand: CommandReader, classpath: List[String], platform: PlatformKind, extraArgs: Shellable*)(using Settings): List[os.Shellable] =
+  def makeArgs(module: Module, subcommand: CommandReader, classpath: List[String], dependencies: List[String], platform: PlatformKind, extraArgs: Shellable*)(using Settings): List[os.Shellable] =
     val workspace = os.pwd / os.RelPath(module.root)
     extension (platform: PlatformKind) def asFlags: List[String] = platform match
       case PlatformKind.jvm => Nil
@@ -44,6 +44,7 @@ object ScalaCommand:
       subcommand.commandString(module)(
         List(
           (if classpath.nonEmpty then "--classpath" :: classpath.mkString(":") :: Nil else Nil),
+          (dependencies.map(dep => "--dependency" :: dep :: Nil).flatten),
           platform.asFlags,
           "--workspace", workspace,
           extraArgs,

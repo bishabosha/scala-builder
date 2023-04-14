@@ -52,12 +52,13 @@ object Tasks:
     Result:
       val target = project.library(module.name, PlatformKind.jvm)
       val classpath = target.depsClasspath
+      val dependencies = target.depsDependencies
       val resourceArgs =
         if module.resourceGenerators.sizeIs > 0 then
           "--resource-dir" :: resourceDir.toString :: Nil
         else
           Nil
-      val args = ScalaCommand.makeArgs(module, SubCommand.Repl, classpath, PlatformKind.jvm, resourceArgs)
+      val args = ScalaCommand.makeArgs(module, SubCommand.Repl, classpath, dependencies, PlatformKind.jvm, resourceArgs)
       reporter.debug(s"running command: ${args.map(_.value.mkString(" ")).mkString(" ")}")
       val result = ScalaCommand.spawn(args).?
 
@@ -76,6 +77,7 @@ object Tasks:
           Shared.doCleanModule(module, dependency = true).?
 
         val classpath = targetDeps.flatMap(_.outClasspath).distinct.sorted
+        val dependencies = targetDeps.flatMap(_.outDependencies).distinct.sorted
 
         val resourceArgs =
           if module.resourceGenerators.sizeIs > 0 then
@@ -83,7 +85,7 @@ object Tasks:
           else
             Nil
 
-        val args = ScalaCommand.makeArgs(module, SubCommand.Test, classpath, PlatformKind.jvm, resourceArgs)
+        val args = ScalaCommand.makeArgs(module, SubCommand.Test, classpath, dependencies, PlatformKind.jvm, resourceArgs)
         reporter.debug(s"running command: ${args.map(_.value.mkString(" ")).mkString(" ")}")
         val result = ScalaCommand.spawn(args).?
 

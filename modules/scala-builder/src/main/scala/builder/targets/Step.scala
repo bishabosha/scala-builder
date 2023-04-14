@@ -24,18 +24,23 @@ final case class CompileScalaStep(module: Module, platform: PlatformKind) extend
     val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, platform)) // might not exist yet
     val currentDeps = module.dependsOn.map(project.library(_, platform)) // must exist
 
-    val dclasspath = currentDeps.map(_.outClasspath).flatten.toList.distinct.sorted
+    val dDependencies = currentDeps.flatMap(_.outDependencies).distinct.sorted
+    val dclasspath = currentDeps.flatMap(_.outClasspath).distinct.sorted
 
     val oldTarget = project.graph.get(module.name)
 
-    val structure = Shared.readStructure(module, platform, dclasspath).?
+    val structure = Shared.readStructure(module, platform, dDependencies, dclasspath).?
     val inputHash = Shared.hash(module, structure, Set("main")).?
+
+    val outDependencies = Shared.dependencies(structure, "main").?
 
     def structureIsSame = oldTarget.flatMap(_.optProject(platform)).exists(_ == structure)
     def inputHashIsSame = oldTarget.flatMap(_.optLibrary(platform)).exists(_.inputHash == inputHash)
     def depsChanged = initialDeps.map(_.token) != currentDeps.map(_.token)
 
     def resourceDir = os.pwd / ".scala-builder" / module.name / "managed_resources"
+    val buildDir = os.pwd / os.RelPath(module.root) / ".scala-build"
+    val buildDirStr = buildDir.toString
 
     def computeClasspath() =
       Result:
@@ -44,12 +49,13 @@ final case class CompileScalaStep(module: Module, platform: PlatformKind) extend
             "--resource-dir" :: resourceDir.toString :: Nil
           else
             Nil
-        val args = ScalaCommand.makeArgs(module, InternalCommand.Compile, dclasspath, platform, "--print-class-path", resourceArgs)
+        val args = ScalaCommand.makeArgs(module, InternalCommand.Compile, dclasspath, dDependencies, platform, "--print-class-path", resourceArgs)
         reporter.debug(s"exporting classpath of module ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
         val res = ScalaCommand.call(args).?
         if res.exitCode != 0 then
           failure(s"failed to compile module ${module.name}: ${res.err.lines().mkString("\n")}")
-        val classpath = res.out.lines().head.split(":").toList.distinct.sorted
+        val rawClasspath = res.out.lines().head.split(":").toList.distinct.sorted
+        val classpath = rawClasspath.filter(_.startsWith(buildDirStr))
         reporter.debug(s"classpath of module ${module.name}:main:${platform} is ${classpath.mkString(":")}")
         classpath
 
@@ -57,7 +63,7 @@ final case class CompileScalaStep(module: Module, platform: PlatformKind) extend
       if depsChanged then
         Shared.doCleanModule(module, dependency = true).?
       val mclasspath = computeClasspath().?
-      Some(TargetUpdate(Some(platform -> structure), TargetState.Library(inputHash, platform, dclasspath, mclasspath)))
+      Some(TargetUpdate(Some(platform -> structure), TargetState.Library(inputHash, platform, dDependencies, dclasspath, outDependencies, mclasspath)))
     else
       val previous = oldTarget.get.optLibrary(platform)
       if depsChanged then
@@ -65,12 +71,12 @@ final case class CompileScalaStep(module: Module, platform: PlatformKind) extend
         val mclasspath = computeClasspath().? // execute compile for side-effects
         for old <- previous do
           assert(old.outClasspath == mclasspath) // output classpath should be the same
-        Some(TargetUpdate(Some(platform -> structure), TargetState.Library(inputHash, platform, dclasspath, mclasspath)))
+        Some(TargetUpdate(Some(platform -> structure), TargetState.Library(inputHash, platform, dDependencies, dclasspath, outDependencies, mclasspath)))
       else if !inputHashIsSame then
         val mclasspath = computeClasspath().? // execute compile for side-effects
         for old <- previous do
           assert(old.outClasspath == mclasspath) // output classpath should be the same
-        Some(TargetUpdate(Some(platform -> structure), TargetState.Library(inputHash, platform, dclasspath, mclasspath)))
+        Some(TargetUpdate(Some(platform -> structure), TargetState.Library(inputHash, platform, dDependencies, dclasspath, outDependencies, mclasspath)))
       else
         None
   end exec
@@ -82,11 +88,12 @@ final case class PackageScalaStep(module: Module, info: ModuleKind.Application, 
     val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, platform)) // might not exist yet
     val currentDeps = module.dependsOn.map(project.library(_, platform)) // must exist
 
-    val dclasspath = currentDeps.map(_.outClasspath).flatten.toList.distinct.sorted
+    val dDependencies = currentDeps.flatMap(_.outDependencies).distinct.sorted
+    val dclasspath = currentDeps.flatMap(_.outClasspath).distinct.sorted
 
     val oldTarget = project.graph.get(module.name)
 
-    val structure = Shared.readStructure(module, platform, dclasspath).?
+    val structure = Shared.readStructure(module, platform, dDependencies, dclasspath).?
     val inputHash = Shared.hash(module, structure, Set("main")).?
 
     def structureIsSame = oldTarget.flatMap(_.optProject(platform)).exists(_ == structure)
@@ -111,7 +118,7 @@ final case class PackageScalaStep(module: Module, info: ModuleKind.Application, 
       val outputPath = os.pwd / ".scala-builder" / module.name / "packaged"
       Shared.makeDir(outputPath).?
       val artifactPath = outputPath / artifact
-      val args = ScalaCommand.makeArgs(module, InternalCommand.Package(artifactPath), dclasspath, platform, mainArgs, resourceArgs)
+      val args = ScalaCommand.makeArgs(module, InternalCommand.Package(artifactPath), dclasspath, dDependencies, platform, mainArgs, resourceArgs)
       reporter.debug(s"packaging application ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
       val res = ScalaCommand.call(args).?
       if res.exitCode != 0 then
@@ -173,7 +180,8 @@ final case class CopyResourceStep(module: Module, fromTarget: Target) extends St
     val dest = destDir / copyTo.last
     os.copy(os.Path(currentDep.outPath), dest, replaceExisting = true)
     reporter.debug(s"copied resource from ${currentDep.outPath} to $dest")
-    None // No caching for now
+    reporter.info(s"updated resource target ${module.name}:copy[${fromTarget.show}]") // TODO: delete when caching is implemented
+    None // No caching for now, we can hash the `currentDep.outPath` and compare it to the previous one
   end exec
 end CopyResourceStep
 
@@ -182,11 +190,12 @@ final case class RunScalaStep(module: Module, info: ModuleKind.Application) exte
     val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, PlatformKind.jvm)) // might not exist yet
     val currentDeps = module.dependsOn.map(project.library(_, PlatformKind.jvm)) // must exist
 
-    val dclasspath = currentDeps.map(_.outClasspath).flatten.toList.distinct.sorted
+    val dDependencies = currentDeps.flatMap(_.outDependencies).distinct.sorted
+    val dclasspath = currentDeps.flatMap(_.outClasspath).distinct.sorted
 
     val oldTarget = project.graph.get(module.name)
 
-    val structure = Shared.readStructure(module, PlatformKind.jvm, dclasspath).?
+    val structure = Shared.readStructure(module, PlatformKind.jvm, dDependencies, dclasspath).?
     val inputHash = Shared.hash(module, structure, Set("main")).?
 
     def structureIsSame = oldTarget.flatMap(_.optProject(PlatformKind.jvm)).exists(_ == structure)
@@ -204,7 +213,7 @@ final case class RunScalaStep(module: Module, info: ModuleKind.Application) exte
           "--resource-dir" :: resourceDir.toString :: Nil
         else
           Nil
-      val args = ScalaCommand.makeArgs(module, SubCommand.Run, dclasspath, PlatformKind.jvm, mainArgs, resourceArgs)
+      val args = ScalaCommand.makeArgs(module, SubCommand.Run, dclasspath, dDependencies, PlatformKind.jvm, mainArgs, resourceArgs)
       reporter.debug(s"compiling application ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
       val res = ScalaCommand.call(args).?
       if res.exitCode != 0 then
