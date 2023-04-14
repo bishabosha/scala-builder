@@ -1,7 +1,7 @@
 package builder
 
 import toml.Value.*
-import upickle.default.Writer
+import upickle.default.*
 import builder.errors.*
 
 object Config:
@@ -37,6 +37,16 @@ object Config:
           case Str(value) => value
           case _ => failure(s"modules.${key}.kind must be a string")
         }).getOrElse("library")
+        val platforms = values.get("platforms").map({
+          case Arr(values) => values.map({
+            case Str(value) => PlatformKind.lookup(value) match
+              case None => failure(s"unknown platform for modules.${key}.platforms: $value")
+              case Some(platform) => platform
+
+            case _ => failure(s"modules.${key}.platforms must be a list of strings")
+          })
+          case _ => failure(s"modules.${key}.platforms must be a list of strings")
+        }).getOrElse(List(PlatformKind.jvm))
         val dependsOn = values.get("dependsOn").map({
           case Arr(values) => values.map({
             case Str(value) => value
@@ -54,27 +64,64 @@ object Config:
           case _ => failure(s"unknown module kind for modules.${key}.kind: $kind")
         if !moduleKind.isInstanceOf[ModuleKind.Application] && mainClass.nonEmpty then
           failure(s"modules.${key}.mainClass is only valid for application modules")
+        // resourceGenerators = [{ module = "webpage", dest = "assets/main.js" }]
+        val resourceGenerators = values.get("resourceGenerators").map({
+          case Arr(values) => values.map(readResourceGenerator(key, _).?)
+          case _ => failure(s"modules.${key}.resourceGenerators must be a list of tables")
+        }).getOrElse(Nil)
         Module(
           name = key,
           root = root,
+          platforms = platforms,
           kind = moduleKind,
-          dependsOn = dependsOn
+          dependsOn = dependsOn,
+          resourceGenerators = resourceGenerators
         )
       case _ =>
         failure(s"module.$key must be a table")
+  end readModule
+
+  private def readResourceGenerator[T](module: String, value: toml.Value): Result[ResourceGenerator, String] = Result:
+    value match
+      case Tbl(values) =>
+        val fromModule = values.get("module").map({
+          case Str(value) => value
+          case _ => failure(s"modules.${module}.resourceGenerators.module must be a string")
+        }).getOrElse(failure(s"modules.${module}.resourceGenerators.module must be a string"))
+        val dest = values.get("dest").map({
+          case Str(value) => value
+          case _ => failure(s"modules.${module}.resourceGenerators.dest must be a string")
+        }).getOrElse(failure(s"modules.${module}.resourceGenerators.dest must be a string"))
+        val target = targets.Target(fromModule, targets.TargetKind.Package)
+        ResourceGenerator.Copy(target = target, dest = dest)
+      case _ => failure(s"modules.${module}.resourceGenerators must be a list of tables")
+  end readResourceGenerator
 
 case class Config(
   scalaVersion: Option[String] = None,
   modules: Map[String, Module] = Map.empty
-) derives Writer
+) derives ReadWriter
 
 case class Module(
   name: String,
   root: String,
+  platforms: List[PlatformKind] = List(PlatformKind.`jvm`),
   kind: ModuleKind = ModuleKind.Library,
-  dependsOn: List[String] = Nil
-) derives Writer
+  dependsOn: List[String] = Nil,
+  resourceGenerators: List[ResourceGenerator] = Nil
+) derives ReadWriter
 
-enum ModuleKind derives Writer:
+enum PlatformKind derives ReadWriter:
+  case `jvm`, `scala-js`, `scala-native`
+
+object PlatformKind:
+  private val byName = values.view.map(kind => kind.toString -> kind).toMap
+
+  def lookup(str: String): Option[PlatformKind] = byName.get(str)
+
+enum ModuleKind derives ReadWriter:
   case Library
   case Application(mainClass: Option[String])
+
+enum ResourceGenerator derives ReadWriter:
+  case Copy(target: targets.Target, dest: String)

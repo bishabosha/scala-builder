@@ -1,26 +1,34 @@
 package builder
 
 import builder.errors.Result
-import builder.targets.TargetGraph
+import builder.targets.*
 import builder.ScalaCommand.SubCommand
 
 class ConfigTest extends munit.FunSuite {
 
+
+  // TODO: - first the app reads the config into a Config data structure
+  //       - then for each module, read the project json from Scala CLI
+  //       - then zip the two together to get ModuleSettings, which adds in info from the project json
+  //       - then product the target graph from the ModuleSettings
+
   val exampleFullStackAppConf = """
   scalaVersion = "3.2.2"
 
+  [modules.webpage]
+  platforms = ["scala-js"]
+  kind = "application"
+  mainClass = "example.start"
+  dependsOn = ["core"]
+
   [modules.webserver]
-  kind = "application" # cannot be depended on by other modules
+  kind = "application"
   mainClass = "example.WebServer"
   dependsOn = ["core"]
-
-  [modules.webpage]
-  kind = "application"
-  mainClass = "example.webpage"
-  dependsOn = ["core"]
+  resourceGenerators = [{ module = "webpage", dest = "assets/main.js" }]
 
   [modules.core]
-  kind = "library" # dependents depend on the classpath output
+  platforms = ["jvm", "scala-js"]
   """
 
   extension [T](result: Result[T, String])
@@ -35,22 +43,33 @@ class ConfigTest extends munit.FunSuite {
     assertEquals(config, Config(
       scalaVersion = Some("3.2.2"),
       modules = Map(
+        "webpage" -> Module(
+          name = "webpage",
+          root = "webpage",
+          kind = ModuleKind.Application(mainClass = Some("example.start")),
+          platforms = List(PlatformKind.`scala-js`),
+          dependsOn = List("core")
+        ),
         "webserver" -> Module(
           name = "webserver",
           root = "webserver",
           kind = ModuleKind.Application(mainClass = Some("example.WebServer")),
-          dependsOn = List("core")
-        ),
-        "webpage" -> Module(
-          name = "webpage",
-          root = "webpage",
-          kind = ModuleKind.Application(mainClass = Some("example.webpage")),
-          dependsOn = List("core")
+          dependsOn = List("core"),
+          resourceGenerators = List(
+            ResourceGenerator.Copy(
+              target = Target(
+                module = "webpage",
+                kind = TargetKind.Package
+              ),
+              dest = "assets/main.js"
+            )
+          )
         ),
         "core" -> Module(
           name = "core",
           root = "core",
           kind = ModuleKind.Library,
+          platforms = List(PlatformKind.jvm, PlatformKind.`scala-js`),
           dependsOn = Nil
         )
       )
@@ -81,7 +100,9 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Run,
     targets = Seq("webserver"),
     expected = List(
-      List("core:main"),
+      List("core:main:scala-js"),
+      List("webpage:package"),
+      List("core:main:jvm", "webserver:copy[webpage:package]"),
       List("webserver:runner")
     )
   )
@@ -91,8 +112,10 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq("webserver"),
     expected = List(
-      List("core:main"),
-      List("webserver:main")
+      List("core:main:scala-js"),
+      List("webpage:package"),
+      List("core:main:jvm", "webserver:copy[webpage:package]"),
+      List("webserver:main:jvm")
     )
   )
 
@@ -114,9 +137,9 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq(),
     expected = List(
-      List("bottom:main"),
-      List("left:main", "right:main"),
-      List("top:main")
+      List("bottom:main:jvm"),
+      List("left:main:jvm", "right:main:jvm"),
+      List("top:main:jvm")
     )
   )
 
@@ -125,8 +148,8 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq("right"),
     expected = List(
-      List("bottom:main"),
-      List("right:main"),
+      List("bottom:main:jvm"),
+      List("right:main:jvm"),
     )
   )
 
@@ -148,10 +171,10 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq(),
     expected = List(
-      List("D:main"),
-      List("C:main"),
-      List("B:main"),
-      List("A:main"),
+      List("D:main:jvm"),
+      List("C:main:jvm"),
+      List("B:main:jvm"),
+      List("A:main:jvm"),
     )
   )
 
@@ -160,7 +183,7 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq("D"),
     expected = List(
-      List("D:main"),
+      List("D:main:jvm"),
     )
   )
 
@@ -169,8 +192,8 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq("C"),
     expected = List(
-      List("D:main"),
-      List("C:main"),
+      List("D:main:jvm"),
+      List("C:main:jvm"),
     )
   )
 
@@ -179,9 +202,9 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq("B"),
     expected = List(
-      List("D:main"),
-      List("C:main"),
-      List("B:main"),
+      List("D:main:jvm"),
+      List("C:main:jvm"),
+      List("B:main:jvm"),
     )
   )
 
@@ -190,10 +213,10 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq("A"),
     expected = List(
-      List("D:main"),
-      List("C:main"),
-      List("B:main"),
-      List("A:main"),
+      List("D:main:jvm"),
+      List("C:main:jvm"),
+      List("B:main:jvm"),
+      List("A:main:jvm"),
     )
   )
 
@@ -219,9 +242,9 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq(),
     expected = List(
-      List("common:main"),
-      List("libA:main", "libB:main"),
-      List("topA:main", "topB:main"),
+      List("common:main:jvm"),
+      List("libA:main:jvm", "libB:main:jvm"),
+      List("topA:main:jvm", "topB:main:jvm"),
     )
   )
 
@@ -230,9 +253,9 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq("topA"),
     expected = List(
-      List("common:main"),
-      List("libA:main"),
-      List("topA:main"),
+      List("common:main:jvm"),
+      List("libA:main:jvm"),
+      List("topA:main:jvm"),
     )
   )
 
@@ -241,9 +264,9 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq("topA", "topB"),
     expected = List(
-      List("common:main"),
-      List("libA:main", "libB:main"),
-      List("topA:main", "topB:main"),
+      List("common:main:jvm"),
+      List("libA:main:jvm", "libB:main:jvm"),
+      List("topA:main:jvm", "topB:main:jvm"),
     )
   )
 
@@ -252,8 +275,8 @@ class ConfigTest extends munit.FunSuite {
     command = SubCommand.Repl,
     targets = Seq("libA", "libB"),
     expected = List(
-      List("common:main"),
-      List("libA:main", "libB:main"),
+      List("common:main:jvm"),
+      List("libA:main:jvm", "libB:main:jvm"),
     )
   )
 

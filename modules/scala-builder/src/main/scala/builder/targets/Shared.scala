@@ -10,12 +10,19 @@ import builder.reporter
 import java.security.MessageDigest
 import java.math.BigInteger
 import java.io.IOException
+import builder.PlatformKind
 
 private[targets] object Shared:
 
-  def readStructure(module: Module, classpath: List[String])(using Settings): Result[ujson.Value, String] =
+  def makeDir(path: os.Path): Result[Unit, String] =
+    Result.attempt:
+      os.makeDir.all(path)
+    .resolve:
+      case err: IOException => s"failed to create directory $path: ${err.getMessage}"
+
+  def readStructure(module: Module, platform: PlatformKind, classpath: List[String])(using Settings): Result[ujson.Value, String] =
     Result:
-      val args = ScalaCommand.makeArgs(module, InternalCommand.ExportJson, classpath)
+      val args = ScalaCommand.makeArgs(module, InternalCommand.ExportJson, classpath, platform)
       val result = ScalaCommand.call(args).?
       if result.exitCode != 0 then
         failure(s"failed to read structure of module ${module.name}: ${result.err.lines().mkString("\n")}")
@@ -60,7 +67,7 @@ private[targets] object Shared:
         reporter.debug(s"dependency of ${module.name} updated, cleaning module ${module.name}...")
       else
         reporter.info(s"cleaning module ${module.name}...")
-      val args = ScalaCommand.makeArgs(module, SubCommand.Clean, Nil)
+      val args = ScalaCommand.makeArgs(module, SubCommand.Clean, Nil, PlatformKind.jvm)
       val result = ScalaCommand.call(args).?
       if result.exitCode != 0 then
         failure(s"failed to clean module ${module.name}: ${result.err.lines().mkString("\n")}")

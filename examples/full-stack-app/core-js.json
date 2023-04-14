@@ -1,0 +1,58 @@
+{
+  "scalaVersion": "3.2.2",
+  "platform": "JS",
+  "scalaJsVersion": "1.13.0",
+  "scopes": {
+    "main": {
+      "sources": [
+        "project.scala",
+        "src/main/scala/example/Macros.scala",
+        "src/main/scala/example/Note.scala"
+      ],
+      "dependencies": [
+        {
+          "groupId": "com.lihaoyi",
+          "artifactId": {
+            "name": "upickle_sjs1",
+            "fullName": "upickle_sjs1_3"
+          },
+          "version": "3.1.0"
+        }
+      ],
+      "resolvers": [
+        "https://repo1.maven.org/maven2",
+        "ivy:file:///Users/jamie/Library/Caches/ScalaCli/local-repo/v1.0.0-RC1-22-57a8dc//[organisation]/[module]/(scala_[scalaVersion]/)(sbt_[sbtVersion]/)[revision]/[type]s/[artifact](-[classifier]).[ext]",
+        "ivy:file:/Users/jamie/.ivy2/local/[organisation]/[module]/(scala_[scalaVersion]/)(sbt_[sbtVersion]/)[revision]/[type]s/[artifact](-[classifier]).[ext]"
+      ]
+    },
+    "test": {
+      "sources": [
+        "project.test.scala",
+        "src/test/scala/example/JsonParsingSpec.scala"
+      ],
+      "dependencies": [
+        {
+          "groupId": "com.lihaoyi",
+          "artifactId": {
+            "name": "upickle_sjs1",
+            "fullName": "upickle_sjs1_3"
+          },
+          "version": "3.1.0"
+        },
+        {
+          "groupId": "org.scalameta",
+          "artifactId": {
+            "name": "munit_sjs1",
+            "fullName": "munit_sjs1_3"
+          },
+          "version": "1.0.0-M7"
+        }
+      ],
+      "resolvers": [
+        "https://repo1.maven.org/maven2",
+        "ivy:file:///Users/jamie/Library/Caches/ScalaCli/local-repo/v1.0.0-RC1-22-57a8dc//[organisation]/[module]/(scala_[scalaVersion]/)(sbt_[sbtVersion]/)[revision]/[type]s/[artifact](-[classifier]).[ext]",
+        "ivy:file:/Users/jamie/.ivy2/local/[organisation]/[module]/(scala_[scalaVersion]/)(sbt_[sbtVersion]/)[revision]/[type]s/[artifact](-[classifier]).[ext]"
+      ]
+    }
+  }
+}

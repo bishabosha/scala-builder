@@ -1,0 +1,81 @@
+{
+  "scalaVersion": "3.2.2",
+  "platform": "JVM",
+  "scopes": {
+    "main": {
+      "sources": [
+        "project.scala",
+        "src/main/scala/caskx/restApi/endpoints.scala",
+        "src/main/scala/caskx/websocketApi/actors.scala",
+        "src/main/scala/example/Repository.scala",
+        "src/main/scala/example/WebServer.scala"
+      ],
+      "dependencies": [
+        {
+          "groupId": "com.lihaoyi",
+          "artifactId": {
+            "name": "cask",
+            "fullName": "cask_3"
+          },
+          "version": "0.9.1"
+        },
+        {
+          "groupId": "com.lihaoyi",
+          "artifactId": {
+            "name": "os-lib",
+            "fullName": "os-lib_3"
+          },
+          "version": "0.9.1"
+        }
+      ],
+      "resolvers": [
+        "https://repo1.maven.org/maven2",
+        "ivy:file:///Users/jamie/Library/Caches/ScalaCli/local-repo/v1.0.0-RC1-22-57a8dc//[organisation]/[module]/(scala_[scalaVersion]/)(sbt_[sbtVersion]/)[revision]/[type]s/[artifact](-[classifier]).[ext]",
+        "ivy:file:/Users/jamie/.ivy2/local/[organisation]/[module]/(scala_[scalaVersion]/)(sbt_[sbtVersion]/)[revision]/[type]s/[artifact](-[classifier]).[ext]"
+      ],
+      "resourcesDirs": [
+        "/Users/jamie/workspace/scala3-full-stack-example/webserver/src/main/resources"
+      ]
+    },
+    "test": {
+      "sources": [
+        "project.test.scala",
+        "src/test/scala/example/RepsitorySpec.scala"
+      ],
+      "dependencies": [
+        {
+          "groupId": "com.lihaoyi",
+          "artifactId": {
+            "name": "cask",
+            "fullName": "cask_3"
+          },
+          "version": "0.9.1"
+        },
+        {
+          "groupId": "com.lihaoyi",
+          "artifactId": {
+            "name": "os-lib",
+            "fullName": "os-lib_3"
+          },
+          "version": "0.9.1"
+        },
+        {
+          "groupId": "org.scalameta",
+          "artifactId": {
+            "name": "munit",
+            "fullName": "munit_3"
+          },
+          "version": "1.0.0-M7"
+        }
+      ],
+      "resolvers": [
+        "https://repo1.maven.org/maven2",
+        "ivy:file:///Users/jamie/Library/Caches/ScalaCli/local-repo/v1.0.0-RC1-22-57a8dc//[organisation]/[module]/(scala_[scalaVersion]/)(sbt_[sbtVersion]/)[revision]/[type]s/[artifact](-[classifier]).[ext]",
+        "ivy:file:/Users/jamie/.ivy2/local/[organisation]/[module]/(scala_[scalaVersion]/)(sbt_[sbtVersion]/)[revision]/[type]s/[artifact](-[classifier]).[ext]"
+      ],
+      "resourcesDirs": [
+        "/Users/jamie/workspace/scala3-full-stack-example/webserver/src/main/resources"
+      ]
+    }
+  }
+}

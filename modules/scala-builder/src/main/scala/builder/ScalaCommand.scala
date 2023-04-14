@@ -14,10 +14,13 @@ object ScalaCommand:
 
   enum InternalCommand extends CommandReader:
     case ExportJson, Compile
+    case Package(output: os.Path)
 
     def commandString(module: Module)(rest: Settings ?=> List[Shellable])(using Settings): List[Shellable] = this match
       case ExportJson => List("--power", "export", "--json", rest)
       case Compile => "compile" :: rest
+      case Package(output) =>
+        List("--power", "package", "-f", "--output", output, rest)
 
 
 
@@ -30,13 +33,18 @@ object ScalaCommand:
       case Repl => "repl" :: rest
       case Clean => "clean" :: Nil
 
-  def makeArgs(module: Module, subcommand: CommandReader, classpath: List[String], extraArgs: Shellable*)(using Settings): List[os.Shellable] =
+  def makeArgs(module: Module, subcommand: CommandReader, classpath: List[String], platform: PlatformKind, extraArgs: Shellable*)(using Settings): List[os.Shellable] =
     val workspace = os.pwd / os.RelPath(module.root)
+    extension (platform: PlatformKind) def asFlags: List[String] = platform match
+      case PlatformKind.jvm => Nil
+      case PlatformKind.`scala-js` => "--js" :: Nil
+      case PlatformKind.`scala-native` => "--native" :: Nil
     List(
       "scala",
       subcommand.commandString(module)(
         List(
           (if classpath.nonEmpty then "--classpath" :: classpath.mkString(":") :: Nil else Nil),
+          platform.asFlags,
           "--workspace", workspace,
           extraArgs,
         )

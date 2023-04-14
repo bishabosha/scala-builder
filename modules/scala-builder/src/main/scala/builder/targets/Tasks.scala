@@ -11,6 +11,7 @@ import builder.ScalaCommand, ScalaCommand.SubCommand
 import scala.concurrent.*
 import scala.concurrent.duration.*
 import scala.concurrent.ExecutionContext.Implicits.global
+import builder.PlatformKind
 
 /** Tasks operate on the target graph, i.e. they do not produce cacheable results. */
 object Tasks:
@@ -46,11 +47,17 @@ object Tasks:
         failure(s"failure with exit code ${result.exitCode()}")
 
   def repl(module: Module, project: Targets)(using Settings): Result[Unit, String] =
-    Result:
-      val target = project.library(module.name)
-      val classpath = target.depsClasspath
+    def resourceDir = os.pwd / ".scala-builder" / module.name / "managed_resources"
 
-      val args = ScalaCommand.makeArgs(module, SubCommand.Repl, classpath)
+    Result:
+      val target = project.library(module.name, PlatformKind.jvm)
+      val classpath = target.depsClasspath
+      val resourceArgs =
+        if module.resourceGenerators.sizeIs > 0 then
+          "--resource-dir" :: resourceDir.toString :: Nil
+        else
+          Nil
+      val args = ScalaCommand.makeArgs(module, SubCommand.Repl, classpath, PlatformKind.jvm, resourceArgs)
       reporter.debug(s"running command: ${args.map(_.value.mkString(" ")).mkString(" ")}")
       val result = ScalaCommand.spawn(args).?
 
@@ -59,9 +66,10 @@ object Tasks:
 
   def test(modules: Set[Module], project: Targets, initial: Targets)(using Settings): Result[Unit, String] =
     def testOne(module: Module): Result[Unit, String] =
+      def resourceDir = os.pwd / ".scala-builder" / module.name / "managed_resources"
       Result:
-        val initialDeps = module.dependsOn.flatMap(initial.optLibrary) // might not exist yet
-        val targetDeps = module.dependsOn.map(project.library) // must exist
+        val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, PlatformKind.jvm)) // might not exist yet
+        val targetDeps = module.dependsOn.map(project.library(_, PlatformKind.jvm)) // must exist
         val shouldClean = initialDeps.map(_.token) != targetDeps.map(_.token)
         if shouldClean then
           // need to clean
@@ -69,7 +77,13 @@ object Tasks:
 
         val classpath = targetDeps.flatMap(_.outClasspath).distinct.sorted
 
-        val args = ScalaCommand.makeArgs(module, SubCommand.Test, classpath)
+        val resourceArgs =
+          if module.resourceGenerators.sizeIs > 0 then
+            "--resource-dir" :: resourceDir.toString :: Nil
+          else
+            Nil
+
+        val args = ScalaCommand.makeArgs(module, SubCommand.Test, classpath, PlatformKind.jvm, resourceArgs)
         reporter.debug(s"running command: ${args.map(_.value.mkString(" ")).mkString(" ")}")
         val result = ScalaCommand.spawn(args).?
 

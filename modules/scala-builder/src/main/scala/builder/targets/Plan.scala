@@ -15,6 +15,7 @@ import builder.ScalaCommand.SubCommand
 import scala.concurrent.*
 import scala.concurrent.duration.*
 import scala.concurrent.ExecutionContext.Implicits.global
+import builder.PlatformKind
 
 /** A Plan operates over the target graph and produces a new one */
 sealed trait Plan:
@@ -34,10 +35,13 @@ object Plan:
     val stepss = stages.map: stage =>
       val steps: List[Step] = stage.map: target =>
         target.kind match
-          case TargetKind.Library => CompileScalaStep(lookup(target.module))
+          case TargetKind.Library(platform) =>
+            CompileScalaStep(lookup(target.module), platform)
           case TargetKind.Application =>
             val module = lookup(target.module)
             RunScalaStep(module, module.kind.asInstanceOf[ModuleKind.Application])
+          case TargetKind.Package => PackageScalaStep.of(target, lookup(target.module)).?
+          case TargetKind.Copy(fromTarget) => CopyResourceStep(lookup(target.module), fromTarget)
       steps
 
     if settings.sequential then
