@@ -176,6 +176,7 @@ case class Targets(graph: Map[String, TargetContext]) derives ReadWriter:
       case TargetState.Library(_, platform, _, _, _, _) => TargetKind.Library(platform)
       case TargetState.Application(_, _) => TargetKind.Application
       case TargetState.Package(_, _) => TargetKind.Package
+      case TargetState.Copy(target) => TargetKind.Copy(target)
 
     val graph0 = collected.foldLeft(graph) { case (graph, (module, updates)) =>
       val oldCtx = graph.get(module)
@@ -214,8 +215,10 @@ enum TargetState(val token: TargetId) derives ReadWriter:
   case Library(inputHash: String, platform: PlatformKind, depsDependencies: List[String], depsClasspath: List[String], outDependencies: List[String], outClasspath: List[String]) extends TargetState(TargetId())
   case Application(inputHash: String, outCommand: List[String]) extends TargetState(TargetId())
   case Package(inputHash: String, outPath: String) extends TargetState(TargetId())
+  case Copy(target: Target) extends TargetState(TargetId())
 
   def describe(name: String): String = this match
     case TargetState.Library(_, platform, _, _, _, _) => s"scala library target $name:main:$platform"
     case TargetState.Application(_, _) => s"scala application target $name:runner"
     case TargetState.Package(_, _) => s"package target $name:package"
+    case TargetState.Copy(target) => s"resource generator target $name:copy[${target.show}]"

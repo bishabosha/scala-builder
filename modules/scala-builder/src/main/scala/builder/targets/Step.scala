@@ -168,20 +168,25 @@ end PackageScalaStep
 final case class CopyResourceStep(module: Module, fromTarget: Target) extends Step:
   def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetUpdate], String] = Result:
     assert(fromTarget.kind == TargetKind.Package)
+    val initialDep = initial.optPackage(fromTarget.module)
     val currentDep = project.getPackage(fromTarget.module) // must exist
-    val sourceResourceDest = module.resourceGenerators.collectFirst({
-      case ResourceGenerator.Copy(m, dest) => dest
-    }).get
 
-    val copyTo = os.RelPath(sourceResourceDest)
+    def depIsSame = initialDep.exists(_.token == currentDep.token)
 
-    val destDir = os.pwd / ".scala-builder" / module.name / "managed_resources" / copyTo.segments.init
-    Shared.makeDir(destDir).?
-    val dest = destDir / copyTo.last
-    os.copy(os.Path(currentDep.outPath), dest, replaceExisting = true)
-    reporter.debug(s"copied resource from ${currentDep.outPath} to $dest")
-    reporter.info(s"updated resource target ${module.name}:copy[${fromTarget.show}]") // TODO: delete when caching is implemented
-    None // No caching for now, we can hash the `currentDep.outPath` and compare it to the previous one
+    if depIsSame then None
+    else
+      val sourceResourceDest = module.resourceGenerators.collectFirst({
+        case ResourceGenerator.Copy(m, dest) => dest
+      }).get
+
+      val copyTo = os.RelPath(sourceResourceDest)
+
+      val destDir = os.pwd / ".scala-builder" / module.name / "managed_resources" / copyTo.segments.init
+      Shared.makeDir(destDir).?
+      val dest = destDir / copyTo.last
+      os.copy(os.Path(currentDep.outPath), dest, replaceExisting = true)
+      reporter.debug(s"copied resource from ${currentDep.outPath} to $dest")
+      Some(TargetUpdate(None, TargetState.Copy(fromTarget)))
   end exec
 end CopyResourceStep
 
