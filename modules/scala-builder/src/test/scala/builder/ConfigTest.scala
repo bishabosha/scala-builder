@@ -101,8 +101,8 @@ class ConfigTest extends munit.FunSuite {
     targets = Seq("webserver"),
     expected = List(
       List("core:main:scala-js"),
-      List("webpage:package"),
-      List("core:main:jvm", "webserver:copy[webpage:package]"),
+      List("webpage:package", "core:main:jvm"),
+      List("webserver:copy[webpage:package]"),
       List("webserver:runner")
     )
   )
@@ -113,8 +113,8 @@ class ConfigTest extends munit.FunSuite {
     targets = Seq("webserver"),
     expected = List(
       List("core:main:scala-js"),
-      List("webpage:package"),
-      List("core:main:jvm", "webserver:copy[webpage:package]"),
+      List("webpage:package", "core:main:jvm"),
+      List("webserver:copy[webpage:package]"),
       List("webserver:main:jvm")
     )
   )

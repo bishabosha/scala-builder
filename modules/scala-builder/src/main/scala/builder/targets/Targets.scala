@@ -17,10 +17,11 @@ import builder.errors.*
 import builder.ResourceGenerator
 import builder.PlatformKind
 
-enum TargetKind derives ReadWriter:
-  case Library(platform: PlatformKind)
-  case Application, Package
-  case Copy(target: Target)
+enum TargetKind(val weight: Int) derives ReadWriter:
+  case Library(platform: PlatformKind) extends TargetKind(2)
+  case Application extends TargetKind(2)
+  case Package extends TargetKind(2)
+  case Copy(target: Target) extends TargetKind(1)
 
   def show: String = this match
     case Library(kind) => s"main:$kind"
@@ -44,48 +45,77 @@ class TargetGraph private (private val targets: SeqMap[Target, collection.Seq[Ta
   private lazy val _stages: List[List[Target]] =
     val lookup = targets
 
-    val dependencies =
-      lookup.map((k, v) => k -> v.to(mutable.LinkedHashSet))
+    val outgoingEdges =
+      lookup.map((k, v) => k -> v.map(dep => dep -> dep.kind.weight).to(mutable.LinkedHashMap))
 
-    val reverseDeps: mutable.Map[Target, mutable.LinkedHashSet[Target]] =
-      val buf = mutable.LinkedHashMap.empty[Target, mutable.LinkedHashSet[Target]]
+    val incomingEdges: mutable.SeqMap[Target, mutable.LinkedHashMap[Target, Int]] =
+      val buf = mutable.LinkedHashMap.empty[Target, mutable.LinkedHashMap[Target, Int]]
       for (k, v) <- lookup do
-        buf.getOrElseUpdate(k, mutable.LinkedHashSet.empty[Target])
+        buf.getOrElseUpdate(k, mutable.LinkedHashMap.empty[Target, Int])
         for dep <- v do
-          buf.getOrElseUpdate(dep, mutable.LinkedHashSet.empty[Target]).add(k)
+          buf.getOrElseUpdate(dep, mutable.LinkedHashMap.empty[Target, Int]).update(k, dep.kind.weight)
       buf
 
     @tailrec
-    def iterate(s1: List[Target], acc: List[List[Target]]): List[List[Target]] =
-      val sNext = mutable.ListBuffer.empty[Target]
-      for target <- s1 do
-        val ndeps = dependencies(target)
-        for d <- ndeps.toList do
-          val incoming = reverseDeps(d)
-          ndeps -= d
-          incoming -= target
-          if incoming.isEmpty then
-            sNext += d
-          end if
+    def iterate(s1: List[Target], s0: List[Target], acc: List[List[Target]]): List[List[Target]] =
+      val sNext = mutable.LinkedHashSet.empty[Target]
+      val sLeftOver = mutable.LinkedHashMap.empty[Target, mutable.LinkedHashSet[Target]]
+
+      // reset weights of targets that are in s0
+      for target <- s0 do
+        val outgoing = outgoingEdges(target)
+        for dep <- outgoing.keySet do
+          val incoming = incomingEdges(dep)
+          incoming(target) = dep.kind.weight
+          outgoing(dep) = dep.kind.weight
+
+      val sAll = s1 ::: s0
+
+      val maxWeight = sAll.flatMap(t => outgoingEdges(t).values.maxOption).maxOption.getOrElse(1)
+      val minWeight = sAll.flatMap(t => outgoingEdges(t).values.minOption).minOption.getOrElse(1)
+      val decrementBy = minWeight
+
+      extension (assoc: mutable.LinkedHashMap[Target, Int])
+        def decrement(t: Target): Option[Int] =
+          assoc.updateWith(t) {
+            case Some(n) if n > decrementBy => Some(n - decrementBy)
+            case _ => None
+          }
+
+      def once(): Unit =
+        for target <- sAll do
+          val outgoing = outgoingEdges(target)
+          for dep <- outgoing.keySet do
+            val incoming = incomingEdges(dep)
+            ((outgoing.decrement(dep), incoming.decrement(target)): @unchecked) match
+              case (None, None) =>
+                sNext += dep
+              case (Some(_), Some(_)) =>
+                sLeftOver.getOrElseUpdate(dep, mutable.LinkedHashSet.empty) += target
+
+      var iterated = 0
+      var countDown = (maxWeight - minWeight) / decrementBy
+      while
+        once()
+        iterated += 1
+        sNext.isEmpty && countDown > 0
+      do
+        countDown -= 1
       if sNext.isEmpty then
         acc
       else
         val s2 = sNext.toList
-        iterate(s2, s2 :: acc)
+        val sRest = (sLeftOver -- s2).values.flatten.toList.distinct
+        iterate(s2, sRest, s2 :: acc)
 
-    val s0 = reverseDeps.collect({ case (node, incoming) if incoming.isEmpty => node }).toList
-    iterate(s0, s0 :: Nil)
+    val s0 = incomingEdges.collect({ case (target, incoming) if incoming.isEmpty => target }).toList
+    iterate(s0, Nil, s0 :: Nil)
   end _stages
 
 object TargetGraph:
   def compile(graph: Map[String, Module], targetModules: Seq[Module], subcommand: SubCommand): Result[TargetGraph, String] =
     Result:
       val excludeTarget = subcommand == SubCommand.Test
-
-      // val reachableGraph = ModuleGraph.reachable(graph, targetModules, excludeTarget)
-
-      extension (module: Module) def moduleDeps: List[String] =
-        module.dependsOn // TODO: include other properties that depend on modules
 
       val buf = mutable.LinkedHashMap.empty[Target, mutable.ArrayBuffer[Target]]
 
@@ -139,7 +169,7 @@ object TargetGraph:
         for target <- targetModules do
           stepModule(0, target.name, PlatformKind.jvm, rootKind)
       else
-        val commonDeps = targetModules.flatMap(_.moduleDeps)
+        val commonDeps = targetModules.flatMap(_.dependsOn)
         for dep <- commonDeps do
           stepModule(1, dep, PlatformKind.jvm, rootKind)
 
