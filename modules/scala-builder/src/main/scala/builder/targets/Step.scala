@@ -39,11 +39,11 @@ final case class CompileScalaStep(module: Module, platform: PlatformKind) extend
     def depsChanged = initialDeps.map(_.token) != currentDeps.map(_.token)
 
     def resourceDir = os.pwd / ".scala-builder" / module.name / "managed_resources"
-    val buildDir = os.pwd / os.RelPath(module.root) / ".scala-build"
-    val buildDirStr = buildDir.toString
 
     def computeClasspath() =
       Result:
+        val buildDir = os.pwd / os.RelPath(module.root) / ".scala-build"
+        val buildDirStr = buildDir.toString
         val resourceArgs =
           if module.resourceGenerators.sizeIs > 0 then
             "--resource-dir" :: resourceDir.toString :: Nil
