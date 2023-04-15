@@ -21,21 +21,21 @@ sealed trait Step:
 
 final case class CompileScalaStep(module: Module, platform: PlatformKind) extends Step:
   def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetUpdate], String] = Result:
+    val structure = Shared.readStructure(module, platform).?
+    val inputHash = Shared.hash(module, structure, Set("main")).?
+
     val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, platform)) // might not exist yet
     val currentDeps = module.dependsOn.map(project.library(_, platform)) // must exist
-
     val dDependencies = currentDeps.flatMap(_.outDependencies).distinct.sorted
     val dclasspath = currentDeps.flatMap(_.outClasspath).distinct.sorted
 
     val oldTarget = project.graph.get(module.name)
 
-    val structure = Shared.readStructure(module, platform, dDependencies, dclasspath).?
-    val inputHash = Shared.hash(module, structure, Set("main")).?
-
     val outDependencies = Shared.dependencies(structure, "main").?
 
     def structureIsSame = oldTarget.flatMap(_.optProject(platform)).exists(_ == structure)
     def inputHashIsSame = oldTarget.flatMap(_.optLibrary(platform)).exists(_.inputHash == inputHash)
+    def libDepsChanged = oldTarget.flatMap(_.optLibrary(platform)).exists(_.depsDependencies != dDependencies)
     def depsChanged = initialDeps.map(_.token) != currentDeps.map(_.token)
 
     def resourceDir = os.pwd / ".scala-builder" / module.name / "managed_resources"
@@ -60,13 +60,13 @@ final case class CompileScalaStep(module: Module, platform: PlatformKind) extend
         classpath
 
     if !structureIsSame then
-      if depsChanged then
+      if depsChanged || libDepsChanged then
         Shared.doCleanModule(module, dependency = true).?
       val mclasspath = computeClasspath().?
       Some(TargetUpdate(Some(platform -> structure), TargetState.Library(inputHash, platform, dDependencies, dclasspath, outDependencies, mclasspath)))
     else
       val previous = oldTarget.get.optLibrary(platform)
-      if depsChanged then
+      if depsChanged || libDepsChanged then
         Shared.doCleanModule(module, dependency = true).?
         val mclasspath = computeClasspath().? // execute compile for side-effects
         for old <- previous do
@@ -85,6 +85,9 @@ end CompileScalaStep
 final case class PackageScalaStep(module: Module, info: ModuleKind.Application, platform: PlatformKind) extends Step:
 
   def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetUpdate], String] = Result:
+    val structure = Shared.readStructure(module, platform).?
+    val inputHash = Shared.hash(module, structure, Set("main")).?
+
     val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, platform)) // might not exist yet
     val currentDeps = module.dependsOn.map(project.library(_, platform)) // must exist
 
@@ -93,11 +96,9 @@ final case class PackageScalaStep(module: Module, info: ModuleKind.Application, 
 
     val oldTarget = project.graph.get(module.name)
 
-    val structure = Shared.readStructure(module, platform, dDependencies, dclasspath).?
-    val inputHash = Shared.hash(module, structure, Set("main")).?
-
     def structureIsSame = oldTarget.flatMap(_.optProject(platform)).exists(_ == structure)
     def inputHashIsSame = oldTarget.flatMap(_.optPackage).exists(_.inputHash == inputHash)
+    def libDepsChanged = oldTarget.flatMap(_.optLibrary(platform)).exists(_.depsDependencies != dDependencies)
     def depsChanged = initialDeps.map(_.token) != currentDeps.map(_.token)
 
     def resourceDir = os.pwd / ".scala-builder" / module.name / "managed_resources"
@@ -128,14 +129,14 @@ final case class PackageScalaStep(module: Module, info: ModuleKind.Application, 
 
     if !structureIsSame then
       // reporter.info(s"project structure changed for ${module.name}")
-      if depsChanged then
+      if depsChanged || libDepsChanged then
         // reporter.info(s"cleaning module ${module.name} because dependencies changed")
         Shared.doCleanModule(module, dependency = true).?
       val outPath = computePackage().?
       Some(TargetUpdate(Some(platform -> structure), TargetState.Package(inputHash, outPath)))
     else
       val previous = oldTarget.get.optPackage
-      if depsChanged then
+      if depsChanged || libDepsChanged then
         Shared.doCleanModule(module, dependency = true).?
         val outPath = computePackage().? // execute compile for side-effects
         for old <- previous do
@@ -192,6 +193,9 @@ end CopyResourceStep
 
 final case class RunScalaStep(module: Module, info: ModuleKind.Application) extends Step:
   def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetUpdate], String] = Result:
+    val structure = Shared.readStructure(module, PlatformKind.jvm).?
+    val inputHash = Shared.hash(module, structure, Set("main")).?
+
     val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, PlatformKind.jvm)) // might not exist yet
     val currentDeps = module.dependsOn.map(project.library(_, PlatformKind.jvm)) // must exist
 
@@ -200,11 +204,9 @@ final case class RunScalaStep(module: Module, info: ModuleKind.Application) exte
 
     val oldTarget = project.graph.get(module.name)
 
-    val structure = Shared.readStructure(module, PlatformKind.jvm, dDependencies, dclasspath).?
-    val inputHash = Shared.hash(module, structure, Set("main")).?
-
     def structureIsSame = oldTarget.flatMap(_.optProject(PlatformKind.jvm)).exists(_ == structure)
     def inputHashIsSame = oldTarget.flatMap(_.optApplication).exists(_.inputHash == inputHash)
+    def libDepsChanged = oldTarget.flatMap(_.optLibrary(PlatformKind.jvm)).exists(_.depsDependencies != dDependencies)
     def depsChanged = initialDeps.map(_.token) != currentDeps.map(_.token)
 
     def resourceDir = os.pwd / ".scala-builder" / module.name / "managed_resources"
@@ -229,14 +231,14 @@ final case class RunScalaStep(module: Module, info: ModuleKind.Application) exte
 
     if !structureIsSame then
       // reporter.info(s"project structure changed for ${module.name}")
-      if depsChanged then
+      if depsChanged || libDepsChanged then
         // reporter.info(s"cleaning module ${module.name} because dependencies changed")
         Shared.doCleanModule(module, dependency = true).?
       val outCommand = computeCommand().?
       Some(TargetUpdate(Some(PlatformKind.jvm -> structure), TargetState.Application(inputHash, outCommand)))
     else
       val previous = oldTarget.get.optApplication
-      if depsChanged then
+      if depsChanged || libDepsChanged then
         Shared.doCleanModule(module, dependency = true).?
         val outCommand = computeCommand().? // execute compile for side-effects
         for old <- previous do

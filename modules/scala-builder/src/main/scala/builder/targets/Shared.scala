@@ -20,12 +20,9 @@ private[targets] object Shared:
     .resolve:
       case err: IOException => s"failed to create directory $path: ${err.getMessage}"
 
-  def readStructure(module: Module, platform: PlatformKind, dependencies: List[String], classpath: List[String])(using Settings): Result[ujson.Value, String] =
+  def readStructure(module: Module, platform: PlatformKind)(using Settings): Result[ujson.Value, String] =
     Result:
-      // TODO: actually do not pass in dependencies to `scala` command, otherwise there is not a way to
-      // distinguish between declared dependencies and transitive dependencies.
-      // However that will mean tracking changes in dependencies in each step.
-      val args = ScalaCommand.makeArgs(module, InternalCommand.ExportJson, classpath, dependencies, platform)
+      val args = ScalaCommand.makeArgs(module, InternalCommand.ExportJson, classpath = Nil, dependencies = Nil, platform)
       val result = ScalaCommand.call(args).?
       if result.exitCode != 0 then
         failure(s"failed to read structure of module ${module.name}: ${result.err.lines().mkString("\n")}")
