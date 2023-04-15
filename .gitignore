@@ -3,3 +3,5 @@
 .metals
 .vscode
 .idea
+examples/1-full-stack-app/repo-data
+.scala-builder

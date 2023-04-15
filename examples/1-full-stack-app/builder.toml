@@ -1,0 +1,29 @@
+# This project is mostly derived from https://github.com/bishabosha/scala3-full-stack-example/tree/for-api-video
+scalaVersion = "3.2.2"
+
+[modules.model]
+platforms = ["jvm", "scala-js"]
+
+[modules.webpage-dom]
+platforms = ["scala-js"]
+
+[modules.webpage-client]
+platforms = ["scala-js"]
+dependsOn = ["model"] # should smartly chose the scala-js dep
+
+[modules.webpage]
+platforms = ["scala-js"]
+kind = "application"
+mainClass = "example.start"
+dependsOn = ["webpage-client", "webpage-dom"] # should smartly chose the scala-js dep
+
+[modules.cask-extensions]
+
+[modules.webserver]
+kind = "application"
+mainClass = "example.WebServer"
+dependsOn = ["model", "cask-extensions"] # should smartly chose the jvm dep
+resourceGenerators = [
+  # depending on a js application module should select its linked output
+  { module = "webpage", dest = "assets/main.js" }
+]
