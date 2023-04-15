@@ -167,39 +167,33 @@ case class Targets(graph: Map[String, TargetContext]) derives ReadWriter:
   def getPackage(name: String): TargetState.Package =
     graph(name).getPackage
 
-  def ++ (updates: Iterable[(String, TargetUpdate)]): Targets =
+  def ++ (updates: Iterable[(String, TargetState)]): Targets =
     val collected = updates.groupMap((module, _) => module)((module, update) =>
-      reporter.info(s"updated ${update.target.describe(module)}")
+      reporter.info(s"updated ${update.describe(module)}")
       update
     )
     extension (st: TargetState) def targetKind: TargetKind = st match
-      case TargetState.Library(_, platform, _, _, _, _) => TargetKind.Library(platform)
-      case TargetState.Application(_, _) => TargetKind.Application
-      case TargetState.Package(_, _) => TargetKind.Package
+      case TargetState.Library(_, _, platform, _, _, _, _) => TargetKind.Library(platform)
+      case TargetState.Application(_, _, _) => TargetKind.Application
+      case TargetState.Package(_, _, _) => TargetKind.Package
       case TargetState.Copy(target) => TargetKind.Copy(target)
 
     val graph0 = collected.foldLeft(graph) { case (graph, (module, updates)) =>
-      val oldCtx = graph.get(module)
       val oldStates =
-        (for ctx <- oldCtx yield
+        (for ctx <- graph.get(module) yield
           Map.from(ctx.targets.map(state => state.targetKind -> state)))
         .getOrElse(Map.empty)
-      val oldProjects = oldCtx.map(_.projects).getOrElse(Map.empty)
-      val patches = updates.map(tu => tu.target.targetKind -> tu.target)
-      val projectPatches = updates.flatMap(_.project)
+      val patches = updates.map(target => target.targetKind -> target)
       val newStates = oldStates ++ patches
-      val newProjects = oldProjects ++ projectPatches
-      graph.updated(module, TargetContext(newProjects, newStates.values.toSet))
+      graph.updated(module, TargetContext(newStates.values.toSet))
     }
     Targets(graph0)
 
 /** A unique token representing the state of a target */
 final class TargetId
 
-case class TargetUpdate(project: Option[(PlatformKind, ujson.Value)], target: TargetState)
-
 // TODO: update, need to store the associated PlatformKind with the project
-case class TargetContext(projects: Map[PlatformKind, ujson.Value], targets: Set[TargetState]) derives ReadWriter:
+case class TargetContext(targets: Set[TargetState]) derives ReadWriter:
   def optLibrary(platform: PlatformKind): Option[TargetState.Library] =
     targets.collectFirst({ case l: TargetState.Library if l.platform == platform => l })
   def library(platform: PlatformKind): TargetState.Library = optLibrary(platform).get
@@ -207,18 +201,16 @@ case class TargetContext(projects: Map[PlatformKind, ujson.Value], targets: Set[
   def application: TargetState.Application = optApplication.get
   def optPackage: Option[TargetState.Package] = targets.collectFirst({ case p: TargetState.Package => p })
   def getPackage: TargetState.Package = optPackage.get
-  // def project(platform: PlatformKind): ujson.Value = projects(platform)
-  def optProject(platform: PlatformKind): Option[ujson.Value] = projects.get(platform)
 
 /** A target is a cacheable entity, associated with a module */
 enum TargetState(val token: TargetId) derives ReadWriter:
-  case Library(inputHash: String, platform: PlatformKind, depsDependencies: List[String], depsClasspath: List[String], outDependencies: List[String], outClasspath: List[String]) extends TargetState(TargetId())
-  case Application(inputHash: String, outCommand: List[String]) extends TargetState(TargetId())
-  case Package(inputHash: String, outPath: String) extends TargetState(TargetId())
+  case Library(projectHash: String, sourcesHash: String, platform: PlatformKind, depsDependencies: List[String], depsClasspath: List[String], outDependencies: List[String], outClasspath: List[String]) extends TargetState(TargetId())
+  case Application(projectHash: String, sourcesHash: String, outCommand: List[String]) extends TargetState(TargetId())
+  case Package(projectHash: String, sourcesHash: String, outPath: String) extends TargetState(TargetId())
   case Copy(target: Target) extends TargetState(TargetId())
 
   def describe(name: String): String = this match
-    case TargetState.Library(_, platform, _, _, _, _) => s"scala library target $name:main:$platform"
-    case TargetState.Application(_, _) => s"scala application target $name:runner"
-    case TargetState.Package(_, _) => s"package target $name:package"
+    case TargetState.Library(_, _, platform, _, _, _, _) => s"scala library target $name:main:$platform"
+    case TargetState.Application(_, _, _) => s"scala application target $name:runner"
+    case TargetState.Package(_, _, _) => s"package target $name:package"
     case TargetState.Copy(target) => s"resource generator target $name:copy[${target.show}]"

@@ -35,11 +35,8 @@ object Plan:
     val stepss = stages.map: stage =>
       val steps: List[Step] = stage.map: target =>
         target.kind match
-          case TargetKind.Library(platform) =>
-            CompileScalaStep(lookup(target.module), target, platform)
-          case TargetKind.Application =>
-            val module = lookup(target.module)
-            RunScalaStep(module, target, module.kind.asInstanceOf[ModuleKind.Application])
+          case TargetKind.Library(platform) => CompileScalaStep(lookup(target.module), target, platform)
+          case TargetKind.Application => RunScalaStep(lookup(target.module), target)
           case TargetKind.Package => PackageScalaStep.of(lookup(target.module), target).?
           case TargetKind.Copy(fromTarget) => CopyResourceStep(lookup(target.module), target, fromTarget)
       steps

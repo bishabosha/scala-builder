@@ -53,11 +53,7 @@ object Tasks:
       val target = project.library(module.name, PlatformKind.jvm)
       val classpath = target.depsClasspath
       val dependencies = target.depsDependencies
-      val resourceArgs =
-        if module.resourceGenerators.sizeIs > 0 then
-          "--resource-dir" :: resourceDir.toString :: Nil
-        else
-          Nil
+      val resourceArgs = Shared.resourceArgs(module)
       val args = ScalaCommand.makeArgs(module, SubCommand.Repl, classpath, dependencies, PlatformKind.jvm, resourceArgs)
       reporter.debug(s"running command: ${args.map(_.value.mkString(" ")).mkString(" ")}")
       val result = ScalaCommand.spawn(args).?
@@ -69,23 +65,14 @@ object Tasks:
     def testOne(module: Module): Result[Unit, String] =
       def resourceDir = os.pwd / ".scala-builder" / module.name / "managed_resources"
       Result:
-        val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, PlatformKind.jvm)) // might not exist yet
-        val targetDeps = module.dependsOn.map(project.library(_, PlatformKind.jvm)) // must exist
-        val shouldClean = initialDeps.map(_.token) != targetDeps.map(_.token)
-        if shouldClean then
+        val deps = Shared.dependencies(module, PlatformKind.jvm, project, initial)
+
+        if deps.changedState then
           // need to clean
           Shared.doCleanModule(module, dependency = true).?
 
-        val classpath = targetDeps.flatMap(_.outClasspath).distinct.sorted
-        val dependencies = targetDeps.flatMap(_.outDependencies).distinct.sorted
-
-        val resourceArgs =
-          if module.resourceGenerators.sizeIs > 0 then
-            "--resource-dir" :: resourceDir.toString :: Nil
-          else
-            Nil
-
-        val args = ScalaCommand.makeArgs(module, SubCommand.Test, classpath, dependencies, PlatformKind.jvm, resourceArgs)
+        val resourceArgs = Shared.resourceArgs(module)
+        val args = ScalaCommand.makeArgs(module, SubCommand.Test, deps.classpath, deps.libraries, PlatformKind.jvm, resourceArgs)
         reporter.debug(s"running command: ${args.map(_.value.mkString(" ")).mkString(" ")}")
         val result = ScalaCommand.spawn(args).?
 

@@ -14,22 +14,46 @@ import builder.PlatformKind
 
 private[targets] object Shared:
 
+
+  case class Dependencies(initialState: List[TargetState.Library], currentState: List[TargetState.Library]):
+    val libraries = currentState.flatMap(_.outDependencies).distinct.sorted
+    val classpath = currentState.flatMap(_.outClasspath).distinct.sorted
+    def changedState = initialState.map(_.token) != currentState.map(_.token)
+
+
+  def dependencies(module: Module, platform: PlatformKind, project: Targets, initial: Targets)(using Settings): Dependencies =
+    val initialDeps = module.dependsOn.flatMap(project.optLibrary(_, platform)) // might not exist yet
+    val currentDeps = module.dependsOn.map(project.library(_, platform)) // must exist
+    Dependencies(initialDeps, currentDeps)
+
+  def resourceDir(module: Module) = os.pwd / ".scala-builder" / module.name / "managed_resources"
+
+  def resourceArgs(module: Module): List[String] =
+    if module.resourceGenerators.sizeIs > 0 then
+      "--resource-dir" :: resourceDir(module).toString :: Nil
+    else
+      Nil
+
   def makeDir(path: os.Path): Result[Unit, String] =
     Result.attempt:
       os.makeDir.all(path)
     .resolve:
       case err: IOException => s"failed to create directory $path: ${err.getMessage}"
 
-  def readStructure(module: Module, platform: PlatformKind)(using Settings): Result[ujson.Value, String] =
+  def readStructure(module: Module, platform: PlatformKind)(using Settings): Result[(String, ujson.Value), String] =
     Result:
       val args = ScalaCommand.makeArgs(module, InternalCommand.ExportJson, classpath = Nil, dependencies = Nil, platform)
       val result = ScalaCommand.call(args).?
       if result.exitCode != 0 then
         failure(s"failed to read structure of module ${module.name}: ${result.err.lines().mkString("\n")}")
       else
-        ujson.read(result.out.text())
+        val json = result.out.text()
+        val project = ujson.read(json)
+        val hasher = Hasher()
+        hasher.mix(json.getBytes("UTF-8"))
+        (hasher.result, project)
 
-  def dependencies(project: ujson.Value, scope: String): Result[List[String], String] =
+  def libraryDeps(project: ujson.Value, scope: String): Result[List[String], String] =
     def dependency(value: ujson.Value): Option[String] = optional:
       val groupId = value.obj.get("groupId").?.str
       val fullName =
@@ -46,11 +70,9 @@ private[targets] object Shared:
         dependencies.arr.toList.map(dependency.?)
 
     dependencies.asSuccess("failed to read dependencies")
-  end dependencies
+  end libraryDeps
 
   def hash(module: Module, project: ujson.Value, scopes: Set[String]): Result[String, String] =
-    val md = MessageDigest.getInstance("SHA-1")
-
     def readFile(path: String): Result[Array[Byte], String] =
       Result.attempt:
         os.read.bytes(os.pwd / os.RelPath(module.root) / os.RelPath(path))
@@ -65,22 +87,34 @@ private[targets] object Shared:
 
     Result:
       val scopedSources = parseScopedSources.asSuccess("failed to read sources").?
+      val hasher = Hasher()
       for
         scope <- scopedSources
         source <- scope
       do
         val bytes = readFile(source.str).?
-        md.update(bytes)
+        hasher.mix(bytes)
 
+      hasher.result
+  end hash
+
+  class Hasher:
+    val md = MessageDigest.getInstance("SHA-1")
+
+    def mix(bytes: Array[Byte]): Unit =
+      md.update(bytes)
+
+    def result: String =
       val digest        = md.digest()
       val calculatedSum = BigInteger(1, digest)
       val hash          = String.format(s"%040x", calculatedSum).take(10)
       hash
-  end hash
+    end result
+  end Hasher
 
   def runStep(
     step: Step, curr: Targets, initial: Targets
-  )(using Settings): Result[Option[(String, TargetUpdate)], String] =
+  )(using Settings): Result[Option[(String, TargetState)], String] =
     Result:
       reporter.debug(s"running step for target ${step.target.show}...")
       val update = step.exec(project = curr, initial = initial).?
