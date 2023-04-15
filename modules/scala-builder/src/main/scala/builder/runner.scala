@@ -5,8 +5,9 @@ import upickle.default.*
 
 import builder.targets.*
 import builder.errors.*
-import java.io.IOException
 import builder.ScalaCommand.SubCommand
+
+import java.io.IOException
 
 @main def runner(args: String*): Unit =
   Result:
@@ -89,7 +90,7 @@ end run
 def clean()(using Settings): Result[Unit, String] =
   Result:
     Tasks.clean(settings.config.modules.values.toSet).?
-    writeCache(targets.Targets(Map.empty)).?
+    Shared.clearAndRemoveDir(os.pwd / ".scala-builder").?
 
 def test(opts: Test)(using Settings): Result[Unit, String] =
   Result:

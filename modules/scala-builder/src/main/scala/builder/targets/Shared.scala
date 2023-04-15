@@ -12,12 +12,12 @@ import java.math.BigInteger
 import java.io.IOException
 import builder.PlatformKind
 
-private[targets] object Shared:
+private[builder] object Shared:
 
 
   case class Dependencies(initialState: List[TargetState.Library], currentState: List[TargetState.Library]):
-    val libraries = currentState.flatMap(_.outDependencies).distinct.sorted
-    val classpath = currentState.flatMap(_.outClasspath).distinct.sorted
+    val libraries = currentState.flatMap(s => s.dependencies ::: s.extraDependencies).distinct.sorted
+    val classpath = currentState.flatMap(s => s.classpath ::: s.extraClasspath).distinct.sorted
     def changedState = initialState.map(_.token) != currentState.map(_.token)
 
 
@@ -37,6 +37,12 @@ private[targets] object Shared:
   def makeDir(path: os.Path): Result[Unit, String] =
     Result.attempt:
       os.makeDir.all(path)
+    .resolve:
+      case err: IOException => s"failed to create directory $path: ${err.getMessage}"
+
+  def clearAndRemoveDir(path: os.Path): Result[Unit, String] =
+    Result.attempt:
+      os.remove.all(path)
     .resolve:
       case err: IOException => s"failed to create directory $path: ${err.getMessage}"
 
@@ -66,8 +72,8 @@ private[targets] object Shared:
       optional:
         val scopesObj = project.obj.get("scopes").?
         val scopeObj = scopesObj.obj.get(scope).?
-        val dependencies = scopeObj.obj.get("dependencies").?
-        dependencies.arr.toList.map(dependency.?)
+        val dependencies = scopeObj.obj.get("dependencies").map(_.arr.toList).getOrElse(Nil)
+        dependencies.map(dependency.?)
 
     dependencies.asSuccess("failed to read dependencies")
   end libraryDeps
@@ -120,12 +126,12 @@ private[targets] object Shared:
       val update = step.exec(project = curr, initial = initial).?
       update.map(step.module.name -> _)
 
-  def doCleanModule(module: Module, dependency: Boolean)(using Settings): Result[Unit, String] =
+  def cleanBeforeCompile(module: Module)(using Settings) =
+    reporter.debug(s"dependency of ${module.name} updated, cleaning before compilation...")
+    Shared.doCleanModule(module)
+
+  def doCleanModule(module: Module)(using Settings): Result[Unit, String] =
     Result:
-      if dependency then
-        reporter.debug(s"dependency of ${module.name} updated, cleaning module ${module.name}...")
-      else
-        reporter.info(s"cleaning module ${module.name}...")
       val args = ScalaCommand.makeArgs(module, SubCommand.Clean, Nil, Nil, PlatformKind.jvm)
       val result = ScalaCommand.call(args).?
       if result.exitCode != 0 then

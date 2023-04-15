@@ -17,18 +17,25 @@ import builder.PlatformKind
 object Tasks:
 
   def clean(modules: Set[Module])(using Settings): Result[Unit, String] =
-    if settings.sequential then
+
+    def cleanOne(module: Module): Result[Unit, String] =
       Result:
-        for module <- modules do
-          Shared.doCleanModule(module, dependency = false).?
-    else
-      val futures = for module <- modules.toList yield
-        Future:
-          blocking:
-            Shared.doCleanModule(module, dependency = false)
-      val results = Await.result(Future.sequence(futures), Duration.Inf)
-      Result:
-        results.foreach(_.?)
+        reporter.info(s"cleaning module ${module.name}...")
+        Shared.doCleanModule(module).?
+        Shared.clearAndRemoveDir(os.pwd / ".scala-builder" / module.name).?
+
+    val results =
+      if settings.sequential then
+        for module <- modules.toList yield
+          cleanOne(module)
+      else
+        val futures = for module <- modules.toList yield
+          Future:
+            blocking:
+              cleanOne(module)
+        Await.result(Future.sequence(futures), Duration.Inf)
+    Result:
+      results.foreach(_.?)
   end clean
 
   def run(module: Module, info: ModuleKind.Application, project: Targets)(using Settings): Result[Unit, String] =
@@ -51,8 +58,8 @@ object Tasks:
 
     Result:
       val target = project.library(module.name, PlatformKind.jvm)
-      val classpath = target.depsClasspath
-      val dependencies = target.depsDependencies
+      val classpath = target.extraClasspath
+      val dependencies = target.extraDependencies
       val resourceArgs = Shared.resourceArgs(module)
       val args = ScalaCommand.makeArgs(module, SubCommand.Repl, classpath, dependencies, PlatformKind.jvm, resourceArgs)
       reporter.debug(s"running command: ${args.map(_.value.mkString(" ")).mkString(" ")}")
@@ -68,8 +75,7 @@ object Tasks:
         val deps = Shared.dependencies(module, PlatformKind.jvm, project, initial)
 
         if deps.changedState then
-          // need to clean
-          Shared.doCleanModule(module, dependency = true).?
+          Shared.cleanBeforeCompile(module).?
 
         val resourceArgs = Shared.resourceArgs(module)
         val args = ScalaCommand.makeArgs(module, SubCommand.Test, deps.classpath, deps.libraries, PlatformKind.jvm, resourceArgs)

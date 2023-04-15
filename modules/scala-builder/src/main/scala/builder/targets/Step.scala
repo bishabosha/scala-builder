@@ -23,7 +23,7 @@ sealed trait Step:
 
 object Step:
 
-  case class CompileInputs(module: Module, platform: PlatformKind, deps: Shared.Dependencies, ph: ProjectHash)
+  case class CompileInputs(module: Module, platform: PlatformKind, extra: Shared.Dependencies, ph: ProjectHash)
 
   case class CachedCompilation[S, T <: TargetState](
     target: Target,
@@ -36,6 +36,7 @@ object Step:
     test: (T, S) => Unit,
     computeState: (CompileInputs, S) => T,
   ) extends Step:
+
     def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetState], String] = Result:
       val ph = Step.projectHash(module, platform, Set("main")).?
       val deps = Shared.dependencies(module, platform, project, initial)
@@ -43,12 +44,12 @@ object Step:
       val inputs = CompileInputs(module, platform, deps, ph)
       if !currentState.exists(s => projectHash(s) == ph.projectHash) then
         if deps.changedState then
-          Shared.doCleanModule(module, dependency = true).?
+          Shared.cleanBeforeCompile(module).?
         val newState = computeResult(inputs).?
         Some(computeState(inputs, newState))
       else
         if deps.changedState then
-          Shared.doCleanModule(module, dependency = true).?
+          Shared.cleanBeforeCompile(module).?
           val newState = computeResult(inputs).? // execute compile for side-effects
           for current <- currentState do
             test(current, newState)
@@ -79,14 +80,14 @@ end Step
 
 object CompileScalaStep:
 
-  case class LibraryOuts(libraryDeps: List[String], classpath: List[String])
+  case class LibraryOuts(dependencies: List[String], classpath: List[String])
 
   def computeClasspath(inputs: CompileInputs)(using Settings) = Result:
     import inputs.*
     val buildDir = os.pwd / os.RelPath(module.root) / ".scala-build"
     val buildDirStr = buildDir.toString
     val resourceArgs = Shared.resourceArgs(module)
-    val args = ScalaCommand.makeArgs(module, InternalCommand.Compile, deps.classpath, deps.libraries, platform, "--print-class-path", resourceArgs)
+    val args = ScalaCommand.makeArgs(module, InternalCommand.Compile, extra.classpath, extra.libraries, platform, "--print-class-path", resourceArgs)
     reporter.debug(s"exporting classpath of module ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
     val res = ScalaCommand.call(args).?
     if res.exitCode != 0 then
@@ -94,8 +95,8 @@ object CompileScalaStep:
     val rawClasspath = res.out.lines().head.split(":").toList.distinct.sorted
     val classpath = rawClasspath.filter(_.startsWith(buildDirStr))
     reporter.debug(s"classpath of module ${module.name}:main:${platform} is ${classpath.mkString(":")}")
-    val libraryDeps = Shared.libraryDeps(ph.structure, "main").?
-    LibraryOuts(libraryDeps, classpath)
+    val dependencies = Shared.libraryDeps(ph.structure, "main").?
+    LibraryOuts(dependencies, classpath)
   end computeClasspath
 
   def nextLibrary(inputs: CompileInputs, outs: LibraryOuts): TargetState.Library =
@@ -103,15 +104,15 @@ object CompileScalaStep:
       inputs.ph.projectHash,
       inputs.ph.sourcesHash,
       inputs.platform,
-      inputs.deps.libraries,
-      inputs.deps.classpath,
-      outs.libraryDeps,
+      inputs.extra.libraries,
+      inputs.extra.classpath,
+      outs.dependencies,
       outs.classpath
     )
 
   def compareClasspath(old: TargetState.Library, outs: LibraryOuts) =
-    assert(old.outDependencies == outs.libraryDeps)
-    assert(old.outClasspath == outs.classpath)
+    assert(old.dependencies == outs.dependencies)
+    assert(old.classpath == outs.classpath)
 
   def apply(module: Module, target: Target, platform: PlatformKind)(using Settings) =
     Step.CachedCompilation(
@@ -141,7 +142,7 @@ object PackageScalaStep:
     val outputPath = os.pwd / ".scala-builder" / module.name / "packaged"
     Shared.makeDir(outputPath).?
     val artifactPath = outputPath / artifact
-    val args = ScalaCommand.makeArgs(module, InternalCommand.Package(artifactPath), inputs.deps.classpath, inputs.deps.libraries, platform, mainArgs, resourceArgs)
+    val args = ScalaCommand.makeArgs(module, InternalCommand.Package(artifactPath), extra.classpath, extra.libraries, platform, mainArgs, resourceArgs)
     reporter.debug(s"packaging application ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
     val res = ScalaCommand.call(args).?
     if res.exitCode != 0 then
@@ -209,7 +210,7 @@ object RunScalaStep:
     val info = module.kind.asInstanceOf[ModuleKind.Application]
     val mainArgs = Step.mainArgs(info).?
     val resourceArgs = Shared.resourceArgs(module)
-    val args = ScalaCommand.makeArgs(module, SubCommand.Run, inputs.deps.classpath, inputs.deps.libraries, PlatformKind.jvm, "--command", mainArgs, resourceArgs)
+    val args = ScalaCommand.makeArgs(module, SubCommand.Run, extra.classpath, extra.libraries, PlatformKind.jvm, "--command", mainArgs, resourceArgs)
     reporter.debug(s"compiling application ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
     val res = ScalaCommand.call(args).?
     if res.exitCode != 0 then

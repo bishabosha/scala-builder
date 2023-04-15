@@ -110,14 +110,9 @@ object TargetGraph:
 
           target
 
-      def stepModule(level: Int, name: String, platform: PlatformKind, kind: TargetKind): Target =
+      def stepModule(level: Int, name: String, platform: PlatformKind, targetKind: TargetKind): Target =
 
         val module = graph(name)
-        val targetKind = module.kind match
-          case ModuleKind.Library => TargetKind.Library(platform)
-          case ModuleKind.Application(_) =>
-            if level == 0 then kind
-            else failure(s"application ${module.name} cannot be a dependency of another module")
 
         val target = Target(module.name, targetKind)
 
@@ -204,7 +199,7 @@ case class TargetContext(targets: Set[TargetState]) derives ReadWriter:
 
 /** A target is a cacheable entity, associated with a module */
 enum TargetState(val token: TargetId) derives ReadWriter:
-  case Library(projectHash: String, sourcesHash: String, platform: PlatformKind, depsDependencies: List[String], depsClasspath: List[String], outDependencies: List[String], outClasspath: List[String]) extends TargetState(TargetId())
+  case Library(projectHash: String, sourcesHash: String, platform: PlatformKind, extraDependencies: List[String], extraClasspath: List[String], dependencies: List[String], classpath: List[String]) extends TargetState(TargetId())
   case Application(projectHash: String, sourcesHash: String, outCommand: List[String]) extends TargetState(TargetId())
   case Package(projectHash: String, sourcesHash: String, outPath: String) extends TargetState(TargetId())
   case Copy(target: Target) extends TargetState(TargetId())
