@@ -19,10 +19,13 @@ dependsOn = ["webpage-client", "webpage-dom"] # should smartly chose the scala-j
 
 [modules.cask-extensions]
 
+[modules.webserver-repo]
+dependsOn = ["model"]
+
 [modules.webserver]
 kind = "application"
 mainClass = "example.WebServer"
-dependsOn = ["model", "cask-extensions"] # should smartly chose the jvm dep
+dependsOn = ["webserver-repo", "cask-extensions"] # should smartly chose the jvm dep
 resourceGenerators = [
   # depending on a js application module should select its linked output
   { module = "webpage", dest = "assets/main.js" }

@@ -68,7 +68,7 @@ def run(project: Option[String])(using Settings): Result[Unit, String] =
     val plan = Plan.compile(Set(app), SubCommand.Run).?
     val initialState = parseCache.?
     val finalResult = plan.exec(initialState).?
-    writeCache(finalResult).?
+    writeCacheDiff(finalResult, initialState).?
     Tasks.run(app, app.kind.asInstanceOf[ModuleKind.Application], finalResult).?
 
   Result:
@@ -102,7 +102,7 @@ def test(opts: Test)(using Settings): Result[Unit, String] =
     val plan = Plan.compile(filtered, SubCommand.Test).?
     val initialState = parseCache.?
     val finalResult = plan.exec(initialState).?
-    writeCache(finalResult).?
+    writeCacheDiff(finalResult, initialState).?
     Tasks.test(filtered, finalResult, initial = initialState).?
 
 def repl(opts: Repl)(using Settings): Result[Unit, String] =
@@ -112,7 +112,7 @@ def repl(opts: Repl)(using Settings): Result[Unit, String] =
         val plan = Plan.compile(Set(module), SubCommand.Repl).?
         val initialState = parseCache.?
         val finalResult = plan.exec(initialState).?
-        writeCache(finalResult).?
+        writeCacheDiff(finalResult, initialState).?
         Tasks.repl(module, finalResult).?
       case None => failure(s"Module ${opts.project} not found")
 
@@ -150,12 +150,16 @@ def parseCache(using Settings): Result[targets.Targets, String] =
   .resolve:
     case err: IOException => s"error while parsing cache: $err"
 
-def writeCache(project: targets.Targets)(using Settings): Result[Unit, String] =
-  reporter.debug(s"writing cache to $cachePath")
-  Result.attempt:
-    os.write.over(cachePath, write(project), createFolders = true)
-  .resolve:
-    case err: IllegalArgumentException => s"error while writing cache: $err"
+def writeCacheDiff(project: targets.Targets, initial: targets.Targets)(using Settings): Result[Unit, String] =
+  if initial eq project then
+    reporter.debug(s"targets had no diff, will not write any updates to the cache.")
+    Result.Success(())
+  else
+    reporter.debug(s"writing cache to $cachePath")
+    Result.attempt:
+      os.write.over(cachePath, write(project), createFolders = true)
+    .resolve:
+      case err: IllegalArgumentException => s"error while writing cache: $err"
 
 def execCommand(command: ConsoleCommand): Result[Unit, String] =
   Result:

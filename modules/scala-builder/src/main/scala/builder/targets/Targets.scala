@@ -193,26 +193,28 @@ case class Targets(graph: Map[String, TargetContext]) derives ReadWriter:
     graph(name).getPackage
 
   def ++ (updates: Iterable[(String, TargetState)]): Targets =
-    val collected = updates.groupMap((module, _) => module)((module, update) =>
-      reporter.info(s"updated ${update.describe(module)}")
-      update
-    )
-    extension (st: TargetState) def targetKind: TargetKind = st match
-      case TargetState.Library(_, _, platform, _, _, _, _) => TargetKind.Library(platform)
-      case TargetState.Application(_, _, _) => TargetKind.Application
-      case TargetState.Package(_, _, _) => TargetKind.Package
-      case TargetState.Copy(target) => TargetKind.Copy(target)
+    if updates.isEmpty then this
+    else
+      val collected = updates.groupMap((module, _) => module)((module, update) =>
+        reporter.info(s"updated ${update.describe(module)}")
+        update
+      )
+      extension (st: TargetState) def targetKind: TargetKind = st match
+        case TargetState.Library(_, _, platform, _, _, _, _) => TargetKind.Library(platform)
+        case TargetState.Application(_, _, _) => TargetKind.Application
+        case TargetState.Package(_, _, _) => TargetKind.Package
+        case TargetState.Copy(target) => TargetKind.Copy(target)
 
-    val graph0 = collected.foldLeft(graph) { case (graph, (module, updates)) =>
-      val oldStates =
-        (for ctx <- graph.get(module) yield
-          Map.from(ctx.targets.map(state => state.targetKind -> state)))
-        .getOrElse(Map.empty)
-      val patches = updates.map(target => target.targetKind -> target)
-      val newStates = oldStates ++ patches
-      graph.updated(module, TargetContext(newStates.values.toSet))
-    }
-    Targets(graph0)
+      val graph0 = collected.foldLeft(graph) { case (graph, (module, updates)) =>
+        val oldStates =
+          (for ctx <- graph.get(module) yield
+            Map.from(ctx.targets.map(state => state.targetKind -> state)))
+          .getOrElse(Map.empty)
+        val patches = updates.map(target => target.targetKind -> target)
+        val newStates = oldStates ++ patches
+        graph.updated(module, TargetContext(newStates.values.toSet))
+      }
+      Targets(graph0)
 
 /** A unique token representing the state of a target */
 final class TargetId
