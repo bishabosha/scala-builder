@@ -82,7 +82,7 @@ private[targets] object Shared:
     step: Step, curr: Targets, initial: Targets
   )(using Settings): Result[Option[(String, TargetUpdate)], String] =
     Result:
-      reporter.debug(s"running step for module ${step.module.name}...")
+      reporter.debug(s"running step for target ${step.target.show}...")
       val update = step.exec(project = curr, initial = initial).?
       update.map(step.module.name -> _)
 

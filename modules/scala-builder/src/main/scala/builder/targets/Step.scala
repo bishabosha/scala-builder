@@ -16,10 +16,11 @@ import java.io.IOException
   */
 sealed trait Step:
   def module: Module
+  def target: Target
   /** executes the step, and signals if the project changed */
   def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetUpdate], String]
 
-final case class CompileScalaStep(module: Module, platform: PlatformKind) extends Step:
+final case class CompileScalaStep(module: Module, target: Target, platform: PlatformKind) extends Step:
   def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetUpdate], String] = Result:
     val structure = Shared.readStructure(module, platform).?
     val inputHash = Shared.hash(module, structure, Set("main")).?
@@ -82,7 +83,7 @@ final case class CompileScalaStep(module: Module, platform: PlatformKind) extend
   end exec
 end CompileScalaStep
 
-final case class PackageScalaStep(module: Module, info: ModuleKind.Application, platform: PlatformKind) extends Step:
+final case class PackageScalaStep(module: Module, target: Target, info: ModuleKind.Application, platform: PlatformKind) extends Step:
 
   def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetUpdate], String] = Result:
     val structure = Shared.readStructure(module, platform).?
@@ -155,18 +156,18 @@ end PackageScalaStep
 
 object PackageScalaStep:
 
-  def of(target: Target, module: Module)(using Settings): Result[PackageScalaStep, String] =
+  def of(module: Module, target: Target)(using Settings): Result[PackageScalaStep, String] =
     Result:
       val possiblePlatforms = module.platforms
       if possiblePlatforms.sizeIs == 1 then
-        PackageScalaStep(module, module.kind.asInstanceOf[ModuleKind.Application], possiblePlatforms.head)
+        PackageScalaStep(module, target, module.kind.asInstanceOf[ModuleKind.Application], possiblePlatforms.head)
       else
         failure(s"cannot create plan for target ${target.show}, module ${module.name} has multiple platforms: ${possiblePlatforms.mkString(", ")}")
 
 
 end PackageScalaStep
 
-final case class CopyResourceStep(module: Module, fromTarget: Target) extends Step:
+final case class CopyResourceStep(module: Module, target: Target, fromTarget: Target) extends Step:
   def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetUpdate], String] = Result:
     assert(fromTarget.kind == TargetKind.Package)
     val initialDep = initial.optPackage(fromTarget.module)
@@ -191,7 +192,7 @@ final case class CopyResourceStep(module: Module, fromTarget: Target) extends St
   end exec
 end CopyResourceStep
 
-final case class RunScalaStep(module: Module, info: ModuleKind.Application) extends Step:
+final case class RunScalaStep(module: Module, target: Target, info: ModuleKind.Application) extends Step:
   def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetUpdate], String] = Result:
     val structure = Shared.readStructure(module, PlatformKind.jvm).?
     val inputHash = Shared.hash(module, structure, Set("main")).?
