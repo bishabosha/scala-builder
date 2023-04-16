@@ -125,7 +125,7 @@ object PackageScalaStep:
 
   def computePackage(inputs: CompileInputs)(using Settings): Result[String, String] = Result:
     import inputs.*
-    val info = module.kind.asInstanceOf[ModuleKind.Application]
+    val info = module.kind.asApplication
     val mainArgs = Step.mainArgs(info).?
     val resourceArgs = Shared.resourceArgs(module)
     val artifact = module.platforms.head match
@@ -147,22 +147,17 @@ object PackageScalaStep:
   def nextPackage(inputs: CompileInputs, outPath: String): TargetState.Package =
     TargetState.Package(inputs.ph.projectHash, inputs.ph.sourcesHash, outPath)
 
-  def of(module: Module, target: Target)(using Settings) =
-    Result:
-      val possiblePlatforms = module.platforms
-      if possiblePlatforms.sizeIs == 1 then
-        Step.CachedCompilation(
-          target = target,
-          module = module,
-          platform = possiblePlatforms.head,
-          lookupState = _.optPackage,
-          projectHash = _.projectHash,
-          sourcesHash = _.sourcesHash,
-          computeResult = computePackage,
-          computeState = nextPackage,
-        )
-      else
-        failure(s"cannot create plan for target ${target.show}, module ${module.name} has multiple platforms: ${possiblePlatforms.mkString(", ")}")
+  def apply(module: Module, target: Target, platform: PlatformKind)(using Settings) =
+    Step.CachedCompilation(
+      target = target,
+      module = module,
+      platform = platform,
+      lookupState = _.optPackage,
+      projectHash = _.projectHash,
+      sourcesHash = _.sourcesHash,
+      computeResult = computePackage,
+      computeState = nextPackage,
+    )
 
 end PackageScalaStep
 
@@ -196,10 +191,18 @@ object RunScalaStep:
 
   def computeCommand(inputs: CompileInputs)(using Settings) = Result:
     import inputs.*
-    val info = module.kind.asInstanceOf[ModuleKind.Application]
+    val info = module.kind.asApplication
     val mainArgs = Step.mainArgs(info).?
     val resourceArgs = Shared.resourceArgs(module)
-    val args = ScalaCommand.makeArgs(module, SubCommand.Run, extra.classpath, extra.libraries, PlatformKind.jvm, "--command", mainArgs, resourceArgs)
+    def scratchDir = os.pwd / ".scala-builder" / module.name / "scratch"
+    val scratchArgs =
+      if platform == PlatformKind.jvm then
+        Nil
+      else
+        Shared.makeDir(scratchDir).?
+        List("--scratch-dir", scratchDir.toString)
+
+    val args = ScalaCommand.makeArgs(module, SubCommand.Run, extra.classpath, extra.libraries, platform, "--command", scratchArgs, mainArgs, resourceArgs)
     reporter.debug(s"compiling application ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
     val res = ScalaCommand.call(args).?
     if res.exitCode != 0 then
@@ -211,11 +214,11 @@ object RunScalaStep:
   def nextApplication(inputs: CompileInputs, outCommand: List[String]): TargetState.Application =
     TargetState.Application(inputs.ph.projectHash, inputs.ph.sourcesHash, outCommand)
 
-  def apply(module: Module, target: Target)(using Settings) =
+  def apply(module: Module, target: Target, platform: PlatformKind)(using Settings) =
     Step.CachedCompilation(
       target = target,
       module = module,
-      platform = PlatformKind.jvm,
+      platform = platform,
       lookupState = _.optApplication,
       projectHash = _.projectHash,
       sourcesHash = _.sourcesHash,

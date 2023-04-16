@@ -123,5 +123,9 @@ enum ModuleKind derives ReadWriter:
   case Library
   case Application(mainClass: Option[String])
 
+  inline def asApplication(using inline ce: CanError[String]): Application = this match
+    case app: Application => app
+    case _ => failure("expected application module")
+
 enum ResourceGenerator derives ReadWriter:
   case Copy(target: targets.Target, dest: String)

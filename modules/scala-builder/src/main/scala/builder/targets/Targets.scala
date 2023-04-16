@@ -119,7 +119,7 @@ object TargetGraph:
 
       val buf = mutable.LinkedHashMap.empty[Target, mutable.ArrayBuffer[Target]]
 
-      def stepResource(level: Int, parentModule: String, resource: ResourceGenerator): Target = resource match
+      def stepResource(parentModule: String, resource: ResourceGenerator): Target = resource match
         case ResourceGenerator.Copy(fromTarget, dest) =>
           val target = Target(parentModule, TargetKind.Copy(fromTarget))
           buf.getOrElseUpdate(target, mutable.ArrayBuffer.empty) += fromTarget
@@ -133,14 +133,14 @@ object TargetGraph:
                 if options.sizeIs == 1 then options.head
                 else failure(s"cannot copy target ${fromTarget.show} because it is a package target and has multiple platforms")
 
-              stepModule(0, fromModule, fromPlatform, TargetKind.Package)
+              stepModule(fromModule, fromPlatform, TargetKind.Package)
             case TargetKind.Library(_) => failure(s"cannot copy library target ${fromTarget.show}")
             case TargetKind.Application => failure(s"cannot copy application target ${fromTarget.show}")
             case TargetKind.Copy(target) => failure(s"cannot copy target ${fromTarget.show} because it is a copy target")
 
           target
 
-      def stepModule(level: Int, name: String, platform: PlatformKind, targetKind: TargetKind): Target =
+      def stepModule(name: String, platform: PlatformKind, targetKind: TargetKind): Target =
 
         val module = graph(name)
 
@@ -149,11 +149,11 @@ object TargetGraph:
         buf.getOrElseUpdate(target, mutable.ArrayBuffer.empty) // initialize parent
 
         for dep <- module.dependsOn do
-          val depTarget = stepModule(level + 1, dep, platform, TargetKind.Library(platform))
+          val depTarget = stepModule(dep, platform, TargetKind.Library(platform))
           buf(target) += depTarget // register dep as child of parent
 
         for resource <- module.resourceGenerators do
-          val resourceTarget = stepResource(level + 1, module.name, resource)
+          val resourceTarget = stepResource(module.name, resource)
           buf(target) += resourceTarget // register resource as child of parent
 
         target
@@ -165,13 +165,23 @@ object TargetGraph:
         case SubCommand.Test => TargetKind.Library(PlatformKind.jvm)
         case SubCommand.Clean => failure("cannot create target graph for clean subcommand")
 
+      val targetPlatforms =
+        for target <- targetModules yield
+          val options = target.platforms
+          val platform = options.head
+          if options.sizeIs > 1 then
+            reporter.info(s"target ${target.name}:${rootKind.show} has multiple platforms, using $platform")
+          target -> platform
+
       if !excludeTarget then
-        for target <- targetModules do
-          stepModule(0, target.name, PlatformKind.jvm, rootKind)
+        for (target, platform) <- targetPlatforms do
+          stepModule(target.name, platform, rootKind)
       else
-        val commonDeps = targetModules.flatMap(_.dependsOn)
-        for dep <- commonDeps do
-          stepModule(1, dep, PlatformKind.jvm, rootKind)
+        for
+          (target, platform) <- targetPlatforms
+          dep <- target.dependsOn
+        do
+          stepModule(dep, platform, rootKind)
 
       TargetGraph(buf)
   end compile
