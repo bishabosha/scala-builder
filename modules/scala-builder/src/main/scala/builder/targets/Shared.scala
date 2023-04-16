@@ -22,7 +22,7 @@ private[builder] object Shared:
 
 
   def dependencies(module: Module, platform: PlatformKind, project: Targets, initial: Targets)(using Settings): Dependencies =
-    val initialDeps = module.dependsOn.flatMap(project.optLibrary(_, platform)) // might not exist yet
+    val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, platform)) // might not exist yet
     val currentDeps = module.dependsOn.map(project.library(_, platform)) // must exist
     Dependencies(initialDeps, currentDeps)
 

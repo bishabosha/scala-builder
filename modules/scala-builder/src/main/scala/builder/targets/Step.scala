@@ -33,7 +33,6 @@ object Step:
     projectHash: T => String,
     sourcesHash: T => String,
     computeResult: CompileInputs => Result[S, String],
-    test: (T, S) => Unit,
     computeState: (CompileInputs, S) => T,
   ) extends Step:
 
@@ -43,21 +42,20 @@ object Step:
       val currentState = project.graph.get(module.name).flatMap(lookupState)
       val inputs = CompileInputs(module, platform, deps, ph)
       if !currentState.exists(s => projectHash(s) == ph.projectHash) then
+        reporter.debug(s"project changed for ${target.show}, recompiling...")
         if deps.changedState then
           Shared.cleanBeforeCompile(module).?
         val newState = computeResult(inputs).?
         Some(computeState(inputs, newState))
       else
         if deps.changedState then
+          reporter.debug(s"module dependencies changed for ${target.show}, recompiling...")
           Shared.cleanBeforeCompile(module).?
-          val newState = computeResult(inputs).? // execute compile for side-effects
-          for current <- currentState do
-            test(current, newState)
+          val newState = computeResult(inputs).?
           Some(computeState(inputs, newState))
         else if !currentState.exists(s => sourcesHash(s) == ph.sourcesHash) then
-          val newState = computeResult(inputs).? // execute compile for side-effects
-          for current <- currentState do
-            test(current, newState)
+          reporter.debug(s"input source files changed for ${target.show}, recompiling...")
+          val newState = computeResult(inputs).?
           Some(computeState(inputs, newState))
         else
           None
@@ -110,10 +108,6 @@ object CompileScalaStep:
       outs.classpath
     )
 
-  def compareClasspath(old: TargetState.Library, outs: LibraryOuts) =
-    assert(old.dependencies == outs.dependencies)
-    assert(old.classpath == outs.classpath)
-
   def apply(module: Module, target: Target, platform: PlatformKind)(using Settings) =
     Step.CachedCompilation(
       target = target,
@@ -123,7 +117,6 @@ object CompileScalaStep:
       projectHash = _.projectHash,
       sourcesHash = _.sourcesHash,
       computeResult = computeClasspath,
-      test = compareClasspath,
       computeState = nextLibrary,
     )
 end CompileScalaStep
@@ -154,9 +147,6 @@ object PackageScalaStep:
   def nextPackage(inputs: CompileInputs, outPath: String): TargetState.Package =
     TargetState.Package(inputs.ph.projectHash, inputs.ph.sourcesHash, outPath)
 
-  def testPackage(old: TargetState.Package, outPath: String) =
-    assert(old.outPath == outPath)
-
   def of(module: Module, target: Target)(using Settings) =
     Result:
       val possiblePlatforms = module.platforms
@@ -169,7 +159,6 @@ object PackageScalaStep:
           projectHash = _.projectHash,
           sourcesHash = _.sourcesHash,
           computeResult = computePackage,
-          test = testPackage,
           computeState = nextPackage,
         )
       else
@@ -222,9 +211,6 @@ object RunScalaStep:
   def nextApplication(inputs: CompileInputs, outCommand: List[String]): TargetState.Application =
     TargetState.Application(inputs.ph.projectHash, inputs.ph.sourcesHash, outCommand)
 
-  def testApplication(old: TargetState.Application, outCommand: List[String]) =
-    assert(old.outCommand == outCommand)
-
   def apply(module: Module, target: Target)(using Settings) =
     Step.CachedCompilation(
       target = target,
@@ -234,7 +220,6 @@ object RunScalaStep:
       projectHash = _.projectHash,
       sourcesHash = _.sourcesHash,
       computeResult = computeCommand,
-      test = testApplication,
       computeState = nextApplication,
     )
 end RunScalaStep
