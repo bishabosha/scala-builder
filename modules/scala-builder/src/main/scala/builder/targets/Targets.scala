@@ -210,9 +210,9 @@ case class Targets(graph: Map[String, TargetContext]) derives ReadWriter:
         update
       )
       extension (st: TargetState) def targetKind: TargetKind = st match
-        case TargetState.Library(_, _, platform, _, _, _, _) => TargetKind.Library(platform)
-        case TargetState.Application(_, _, _) => TargetKind.Application
-        case TargetState.Package(_, _, _) => TargetKind.Package
+        case TargetState.Library(ProjectInputs(_, _, platform), _, _, _, _) => TargetKind.Library(platform)
+        case TargetState.Application(_, _) => TargetKind.Application
+        case TargetState.Package(_, _) => TargetKind.Package
         case TargetState.Copy(target) => TargetKind.Copy(target)
 
       val graph0 = collected.foldLeft(graph) { case (graph, (module, updates)) =>
@@ -232,22 +232,24 @@ final class TargetId
 // TODO: update, need to store the associated PlatformKind with the project
 case class TargetContext(targets: Set[TargetState]) derives ReadWriter:
   def optLibrary(platform: PlatformKind): Option[TargetState.Library] =
-    targets.collectFirst({ case l: TargetState.Library if l.platform == platform => l })
+    targets.collectFirst({ case l: TargetState.Library if l.inputs.platform == platform => l })
   def library(platform: PlatformKind): TargetState.Library = optLibrary(platform).get
   def optApplication: Option[TargetState.Application] = targets.collectFirst({ case a: TargetState.Application => a })
   def application: TargetState.Application = optApplication.get
   def optPackage: Option[TargetState.Package] = targets.collectFirst({ case p: TargetState.Package => p })
   def getPackage: TargetState.Package = optPackage.get
 
+case class ProjectInputs(projectHash: String, sourcesHash: String, platform: PlatformKind) derives ReadWriter
+
 /** A target is a cacheable entity, associated with a module */
 enum TargetState(val token: TargetId) derives ReadWriter:
-  case Library(projectHash: String, sourcesHash: String, platform: PlatformKind, extraDependencies: List[String], extraClasspath: List[String], dependencies: List[String], classpath: List[String]) extends TargetState(TargetId())
-  case Application(projectHash: String, sourcesHash: String, outCommand: List[String]) extends TargetState(TargetId())
-  case Package(projectHash: String, sourcesHash: String, outPath: String) extends TargetState(TargetId())
+  case Library(inputs: ProjectInputs, extraDependencies: List[String], extraClasspath: List[String], dependencies: List[String], classpath: List[String]) extends TargetState(TargetId())
+  case Application(inputs: ProjectInputs, outCommand: List[String]) extends TargetState(TargetId())
+  case Package(inputs: ProjectInputs, outPath: String) extends TargetState(TargetId())
   case Copy(target: Target) extends TargetState(TargetId())
 
   def describe(name: String): String = this match
-    case TargetState.Library(_, _, platform, _, _, _, _) => s"scala library target $name:main:$platform"
-    case TargetState.Application(_, _, _) => s"scala application target $name:runner"
-    case TargetState.Package(_, _, _) => s"package target $name:package"
+    case TargetState.Library(ProjectInputs(_, _, platform), _, _, _, _) => s"scala library target $name:main:$platform"
+    case TargetState.Application(_, _) => s"scala application target $name:runner"
+    case TargetState.Package(_, _) => s"package target $name:package"
     case TargetState.Copy(target) => s"resource generator target $name:copy[${target.show}]"

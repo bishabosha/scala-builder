@@ -30,8 +30,7 @@ object Step:
     module: Module,
     platform: PlatformKind,
     lookupState: TargetContext => Option[T],
-    projectHash: T => String,
-    sourcesHash: T => String,
+    projectInputs: T => ProjectInputs,
     computeResult: CompileInputs => Result[S, String],
     computeState: (CompileInputs, S) => T,
   ) extends Step:
@@ -41,7 +40,8 @@ object Step:
       val deps = Shared.dependencies(module, platform, project, initial)
       val currentState = project.graph.get(module.name).flatMap(lookupState)
       val inputs = CompileInputs(module, platform, deps, ph)
-      if !currentState.exists(s => projectHash(s) == ph.projectHash) then
+      val pInputs = currentState.map(projectInputs)
+      if !pInputs.exists(p => p.projectHash == ph.projectHash || p.platform != platform) then
         reporter.debug(s"project changed for ${target.show}, recompiling...")
         if deps.changedState then
           Shared.cleanBeforeCompile(module).?
@@ -53,7 +53,7 @@ object Step:
           Shared.cleanBeforeCompile(module).?
           val newState = computeResult(inputs).?
           Some(computeState(inputs, newState))
-        else if !currentState.exists(s => sourcesHash(s) == ph.sourcesHash) then
+        else if !pInputs.exists(_.sourcesHash == ph.sourcesHash) then
           reporter.debug(s"input source files changed for ${target.show}, recompiling...")
           val newState = computeResult(inputs).?
           Some(computeState(inputs, newState))
@@ -99,9 +99,11 @@ object CompileScalaStep:
 
   def nextLibrary(inputs: CompileInputs, outs: LibraryOuts): TargetState.Library =
     TargetState.Library(
-      inputs.ph.projectHash,
-      inputs.ph.sourcesHash,
-      inputs.platform,
+      ProjectInputs(
+        inputs.ph.projectHash,
+        inputs.ph.sourcesHash,
+        inputs.platform,
+      ),
       inputs.extra.libraries,
       inputs.extra.classpath,
       outs.dependencies,
@@ -114,8 +116,7 @@ object CompileScalaStep:
       module = module,
       platform = platform,
       lookupState = _.optLibrary(platform),
-      projectHash = _.projectHash,
-      sourcesHash = _.sourcesHash,
+      projectInputs = _.inputs,
       computeResult = computeClasspath,
       computeState = nextLibrary,
     )
@@ -145,7 +146,7 @@ object PackageScalaStep:
   end computePackage
 
   def nextPackage(inputs: CompileInputs, outPath: String): TargetState.Package =
-    TargetState.Package(inputs.ph.projectHash, inputs.ph.sourcesHash, outPath)
+    TargetState.Package(ProjectInputs(inputs.ph.projectHash, inputs.ph.sourcesHash, inputs.platform), outPath)
 
   def apply(module: Module, target: Target, platform: PlatformKind)(using Settings) =
     Step.CachedCompilation(
@@ -153,8 +154,7 @@ object PackageScalaStep:
       module = module,
       platform = platform,
       lookupState = _.optPackage,
-      projectHash = _.projectHash,
-      sourcesHash = _.sourcesHash,
+      projectInputs = _.inputs,
       computeResult = computePackage,
       computeState = nextPackage,
     )
@@ -212,7 +212,7 @@ object RunScalaStep:
     command
 
   def nextApplication(inputs: CompileInputs, outCommand: List[String]): TargetState.Application =
-    TargetState.Application(inputs.ph.projectHash, inputs.ph.sourcesHash, outCommand)
+    TargetState.Application(ProjectInputs(inputs.ph.projectHash, inputs.ph.sourcesHash, inputs.platform), outCommand)
 
   def apply(module: Module, target: Target, platform: PlatformKind)(using Settings) =
     Step.CachedCompilation(
@@ -220,8 +220,7 @@ object RunScalaStep:
       module = module,
       platform = platform,
       lookupState = _.optApplication,
-      projectHash = _.projectHash,
-      sourcesHash = _.sourcesHash,
+      projectInputs = _.inputs,
       computeResult = computeCommand,
       computeState = nextApplication,
     )
