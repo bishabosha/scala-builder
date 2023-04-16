@@ -15,12 +15,10 @@ on macOS/Linux
 ```bash
 scala --power package -f -o ~/.local/bin/scala-builder --workspace . modules/scala-builder
 ```
-3. change to `examples/1-full-stack-app` directory, and then run
 
-```bash
-cd examples/1-full-stack-app
-scala-builder run webapp
-```
+## Running the Full Stack Webserver example
+1. `cd examples/1-full-stack-app`
+2. `scala-builder run webserver`, use optional `--debug` flag for verbose output (like the task graph)
 
 ## Setting up project
 
