@@ -6,6 +6,9 @@ The new way to glue scala-cli modules
 ## Use Cases
 - [full stack app](examples/1-full-stack-app/builder.toml) with Scala.js front-end and JVM/Native/Node.js server
 
+## Prerequisites
+- Scala CLI 1.0.0-RC2 (as long as `export --json` to std-out subcommand is supported)
+
 ## Building Scala Builder
 
 on macOS/Linux
