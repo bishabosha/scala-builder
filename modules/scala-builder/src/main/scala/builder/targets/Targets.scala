@@ -211,8 +211,8 @@ case class Targets(graph: Map[String, TargetContext]) derives ReadWriter:
       )
       extension (st: TargetState) def targetKind: TargetKind = st match
         case TargetState.Library(ProjectInputs(_, _, platform), _, _, _, _) => TargetKind.Library(platform)
-        case TargetState.Application(_, _) => TargetKind.Application
-        case TargetState.Package(_, _) => TargetKind.Package
+        case TargetState.Application(_, _, _) => TargetKind.Application
+        case TargetState.Package(_, _, _) => TargetKind.Package
         case TargetState.Copy(target) => TargetKind.Copy(target)
 
       val graph0 = collected.foldLeft(graph) { case (graph, (module, updates)) =>
@@ -244,12 +244,12 @@ case class ProjectInputs(projectHash: String, sourcesHash: String, platform: Pla
 /** A target is a cacheable entity, associated with a module */
 enum TargetState(val token: TargetId) derives ReadWriter:
   case Library(inputs: ProjectInputs, extraDependencies: List[String], extraClasspath: List[String], dependencies: List[String], classpath: List[String]) extends TargetState(TargetId())
-  case Application(inputs: ProjectInputs, outCommand: List[String]) extends TargetState(TargetId())
-  case Package(inputs: ProjectInputs, outPath: String) extends TargetState(TargetId())
+  case Application(inputs: ProjectInputs, mainClass: Option[String], outCommand: List[String]) extends TargetState(TargetId())
+  case Package(inputs: ProjectInputs, mainClass: Option[String], outPath: String) extends TargetState(TargetId())
   case Copy(target: Target) extends TargetState(TargetId())
 
   def describe(name: String): String = this match
     case TargetState.Library(ProjectInputs(_, _, platform), _, _, _, _) => s"scala library target $name:main:$platform"
-    case TargetState.Application(_, _) => s"scala application target $name:runner"
-    case TargetState.Package(_, _) => s"package target $name:package"
+    case TargetState.Application(_, _, _) => s"scala application target $name:runner"
+    case TargetState.Package(_, _, _) => s"package target $name:package"
     case TargetState.Copy(target) => s"resource generator target $name:copy[${target.show}]"

@@ -38,10 +38,10 @@ object Plan:
           case TargetKind.Library(platform) => CompileScalaStep(lookup(target.module), target, platform)
           case TargetKind.Application =>
             val module = lookup(target.module)
-            RunScalaStep(module, target, module.platforms.head)
+            RunScalaStep(module, module.kind.asApplication, target, module.platforms.head)
           case TargetKind.Package =>
             val module = lookup(target.module)
-            PackageScalaStep(module, target, module.platforms.head)
+            PackageScalaStep(module, module.kind.asApplication, target, module.platforms.head)
           case TargetKind.Copy(fromTarget) => CopyResourceStep(lookup(target.module), target, fromTarget)
       steps
 

@@ -31,6 +31,7 @@ object Step:
     platform: PlatformKind,
     lookupState: TargetContext => Option[T],
     projectInputs: T => ProjectInputs,
+    extraTest: T => Boolean,
     computeResult: CompileInputs => Result[S, String],
     computeState: (CompileInputs, S) => T,
   ) extends Step:
@@ -41,7 +42,7 @@ object Step:
       val currentState = project.graph.get(module.name).flatMap(lookupState)
       val inputs = CompileInputs(module, platform, deps, ph)
       val pInputs = currentState.map(projectInputs)
-      if !pInputs.exists(p => p.projectHash == ph.projectHash || p.platform != platform) then
+      if !pInputs.exists(p => p.projectHash == ph.projectHash && p.platform == platform) then
         reporter.debug(s"project changed for ${target.show}, recompiling...")
         if deps.changedState then
           Shared.cleanBeforeCompile(module).?
@@ -55,6 +56,10 @@ object Step:
           Some(computeState(inputs, newState))
         else if !pInputs.exists(_.sourcesHash == ph.sourcesHash) then
           reporter.debug(s"input source files changed for ${target.show}, recompiling...")
+          val newState = computeResult(inputs).?
+          Some(computeState(inputs, newState))
+        else if !currentState.exists(extraTest) then
+          reporter.debug(s"extra test failed for ${target.show}, recompiling...")
           val newState = computeResult(inputs).?
           Some(computeState(inputs, newState))
         else
@@ -117,6 +122,7 @@ object CompileScalaStep:
       platform = platform,
       lookupState = _.optLibrary(platform),
       projectInputs = _.inputs,
+      extraTest = _ => true, // nothing extra to test
       computeResult = computeClasspath,
       computeState = nextLibrary,
     )
@@ -145,18 +151,19 @@ object PackageScalaStep:
     artifactPath.toString
   end computePackage
 
-  def nextPackage(inputs: CompileInputs, outPath: String): TargetState.Package =
-    TargetState.Package(ProjectInputs(inputs.ph.projectHash, inputs.ph.sourcesHash, inputs.platform), outPath)
+  def nextPackage(mainClass: Option[String])(inputs: CompileInputs, outPath: String): TargetState.Package =
+    TargetState.Package(ProjectInputs(inputs.ph.projectHash, inputs.ph.sourcesHash, inputs.platform), mainClass, outPath)
 
-  def apply(module: Module, target: Target, platform: PlatformKind)(using Settings) =
+  def apply(module: Module, info: ModuleKind.Application, target: Target, platform: PlatformKind)(using Settings) =
     Step.CachedCompilation(
       target = target,
       module = module,
       platform = platform,
       lookupState = _.optPackage,
       projectInputs = _.inputs,
+      extraTest = _.mainClass == info.mainClass,
       computeResult = computePackage,
-      computeState = nextPackage,
+      computeState = nextPackage(info.mainClass),
     )
 
 end PackageScalaStep
@@ -211,17 +218,18 @@ object RunScalaStep:
     reporter.debug(s"command of application module ${module.name}:runner is ${command.mkString(" ")}")
     command
 
-  def nextApplication(inputs: CompileInputs, outCommand: List[String]): TargetState.Application =
-    TargetState.Application(ProjectInputs(inputs.ph.projectHash, inputs.ph.sourcesHash, inputs.platform), outCommand)
+  def nextApplication(mainClass: Option[String])(inputs: CompileInputs, outCommand: List[String]): TargetState.Application =
+    TargetState.Application(ProjectInputs(inputs.ph.projectHash, inputs.ph.sourcesHash, inputs.platform), mainClass, outCommand)
 
-  def apply(module: Module, target: Target, platform: PlatformKind)(using Settings) =
+  def apply(module: Module, info: ModuleKind.Application, target: Target, platform: PlatformKind)(using Settings) =
     Step.CachedCompilation(
       target = target,
       module = module,
       platform = platform,
       lookupState = _.optApplication,
       projectInputs = _.inputs,
+      extraTest = _.mainClass == info.mainClass,
       computeResult = computeCommand,
-      computeState = nextApplication,
+      computeState = nextApplication(info.mainClass),
     )
 end RunScalaStep
