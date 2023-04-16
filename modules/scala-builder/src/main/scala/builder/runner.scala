@@ -69,7 +69,7 @@ def run(project: Option[String])(using Settings): Result[Unit, String] =
     val initialState = parseCache.?
     val finalResult = plan.exec(initialState).?
     writeCacheDiff(finalResult, initialState).?
-    Tasks.run(app, app.kind.asInstanceOf[ModuleKind.Application], finalResult).?
+    Tasks.run(app, app.kind.asApplication, finalResult).?
 
   Result:
     settings.config.modules.values.filter(_.kind.isInstanceOf[ModuleKind.Application]).toList match

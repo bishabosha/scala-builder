@@ -165,13 +165,23 @@ object TargetGraph:
         case SubCommand.Test => TargetKind.Library(PlatformKind.jvm)
         case SubCommand.Clean => failure("cannot create target graph for clean subcommand")
 
+      val targetPlatforms =
+        for target <- targetModules yield
+          val options = target.platforms
+          val platform = options.head
+          if options.sizeIs > 1 then
+            reporter.info(s"target ${target.name}:${rootKind.show} has multiple platforms, using $platform")
+          target -> platform
+
       if !excludeTarget then
-        for target <- targetModules do
-          stepModule(0, target.name, PlatformKind.jvm, rootKind)
+        for (target, platform) <- targetPlatforms do
+          stepModule(0, target.name, platform, rootKind)
       else
-        val commonDeps = targetModules.flatMap(_.dependsOn)
-        for dep <- commonDeps do
-          stepModule(1, dep, PlatformKind.jvm, rootKind)
+        for
+          (target, platform) <- targetPlatforms
+          dep <- target.dependsOn
+        do
+          stepModule(1, dep, platform, rootKind)
 
       TargetGraph(buf)
   end compile
