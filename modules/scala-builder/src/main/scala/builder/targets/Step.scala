@@ -39,6 +39,7 @@ object Step:
     def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetState], String] = Result:
       val ph = Step.projectHash(module, platform, Set("main")).?
       val deps = Shared.dependencies(module, platform, project, initial)
+      val copys = Shared.copyResourceGens(module, project, initial)
       val currentState = project.graph.get(module.name).flatMap(lookupState)
       val inputs = CompileInputs(module, platform, deps, ph)
       val pInputs = currentState.map(projectInputs)
@@ -49,7 +50,7 @@ object Step:
         val newState = computeResult(inputs).?
         Some(computeState(inputs, newState))
       else
-        if deps.changedState then
+        if deps.changedState || copys.changedState then
           reporter.debug(s"module dependencies changed for ${target.show}, recompiling...")
           Shared.cleanBeforeCompile(module).?
           val newState = computeResult(inputs).?
@@ -174,23 +175,27 @@ final case class CopyResourceStep(module: Module, target: Target, fromTarget: Ta
     val initialDep = initial.optPackage(fromTarget.module)
     val currentDep = project.getPackage(fromTarget.module) // must exist
 
+    val currentState = initial.optCopy(module.name, fromTarget)
+
     def depIsSame = initialDep.exists(_.token == currentDep.token)
 
-    if depIsSame then
-      None
-    else
-      val sourceResourceDest = module.resourceGenerators.collectFirst({
+    val sourceResourceDest = module.resourceGenerators.collectFirst({
         case ResourceGenerator.Copy(`fromTarget`, dest) => dest
       }).get
 
-      val copyTo = os.RelPath(sourceResourceDest)
+    val copyTo = os.RelPath(sourceResourceDest)
 
-      val destDir = Shared.resourceDir(module) / copyTo.segments.init
+    val destDir = Shared.resourceDir(module) / copyTo.segments.init
+    val dest = destDir / copyTo.last
+    val outPath = dest.toString
+
+    if depIsSame && currentState.exists(_.outPath == outPath) then
+      None
+    else
       Shared.makeDir(destDir).?
-      val dest = destDir / copyTo.last
       os.copy(os.Path(currentDep.outPath), dest, replaceExisting = true)
       reporter.debug(s"copied resource from ${currentDep.outPath} to $dest")
-      Some(TargetState.Copy(fromTarget))
+      Some(TargetState.Copy(fromTarget, outPath))
   end exec
 end CopyResourceStep
 

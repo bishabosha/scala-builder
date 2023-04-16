@@ -195,12 +195,16 @@ case class Targets(graph: Map[String, TargetContext]) derives ReadWriter:
     graph.get(name).flatMap(_.optApplication)
   def optPackage(name: String): Option[TargetState.Package] =
     graph.get(name).flatMap(_.optPackage)
+  def optCopy(name: String, target: Target): Option[TargetState.Copy] =
+    graph.get(name).flatMap(_.optCopy(target))
   def library(name: String, platform: PlatformKind): TargetState.Library =
     graph(name).library(platform)
   def application(name: String): TargetState.Application =
     graph(name).application
   def getPackage(name: String): TargetState.Package =
     graph(name).getPackage
+  def getCopy(name: String, target: Target): TargetState.Copy =
+    graph(name).getCopy(target)
 
   def ++ (updates: Iterable[(String, TargetState)]): Targets =
     if updates.isEmpty then this
@@ -213,7 +217,7 @@ case class Targets(graph: Map[String, TargetContext]) derives ReadWriter:
         case TargetState.Library(ProjectInputs(_, _, platform), _, _, _, _) => TargetKind.Library(platform)
         case TargetState.Application(_, _, _) => TargetKind.Application
         case TargetState.Package(_, _, _) => TargetKind.Package
-        case TargetState.Copy(target) => TargetKind.Copy(target)
+        case TargetState.Copy(target, _) => TargetKind.Copy(target)
 
       val graph0 = collected.foldLeft(graph) { case (graph, (module, updates)) =>
         val oldStates =
@@ -238,6 +242,10 @@ case class TargetContext(targets: Set[TargetState]) derives ReadWriter:
   def application: TargetState.Application = optApplication.get
   def optPackage: Option[TargetState.Package] = targets.collectFirst({ case p: TargetState.Package => p })
   def getPackage: TargetState.Package = optPackage.get
+  def optCopy(target: Target): Option[TargetState.Copy] =
+    targets.collectFirst({ case c: TargetState.Copy if c.target == target => c })
+  def getCopy(target: Target): TargetState.Copy =
+    optCopy(target).get
 
 case class ProjectInputs(projectHash: String, sourcesHash: String, platform: PlatformKind) derives ReadWriter
 
@@ -246,10 +254,10 @@ enum TargetState(val token: TargetId) derives ReadWriter:
   case Library(inputs: ProjectInputs, extraDependencies: List[String], extraClasspath: List[String], dependencies: List[String], classpath: List[String]) extends TargetState(TargetId())
   case Application(inputs: ProjectInputs, mainClass: Option[String], outCommand: List[String]) extends TargetState(TargetId())
   case Package(inputs: ProjectInputs, mainClass: Option[String], outPath: String) extends TargetState(TargetId())
-  case Copy(target: Target) extends TargetState(TargetId())
+  case Copy(target: Target, outPath: String) extends TargetState(TargetId())
 
   def describe(name: String): String = this match
     case TargetState.Library(ProjectInputs(_, _, platform), _, _, _, _) => s"scala library target $name:main:$platform"
     case TargetState.Application(_, _, _) => s"scala application target $name:runner"
     case TargetState.Package(_, _, _) => s"package target $name:package"
-    case TargetState.Copy(target) => s"resource generator target $name:copy[${target.show}]"
+    case TargetState.Copy(target, _) => s"resource generator target $name:copy[${target.show}]"

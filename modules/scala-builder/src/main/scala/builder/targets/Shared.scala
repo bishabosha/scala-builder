@@ -11,6 +11,7 @@ import java.security.MessageDigest
 import java.math.BigInteger
 import java.io.IOException
 import builder.PlatformKind
+import builder.ResourceGenerator
 
 private[builder] object Shared:
 
@@ -25,6 +26,18 @@ private[builder] object Shared:
     val initialDeps = module.dependsOn.flatMap(initial.optLibrary(_, platform)) // might not exist yet
     val currentDeps = module.dependsOn.map(project.library(_, platform)) // must exist
     Dependencies(initialDeps, currentDeps)
+
+  case class CopyResourceGens(initialState: List[TargetState.Copy], currentState: List[TargetState.Copy]):
+    def changedState = initialState.map(_.token) != currentState.map(_.token)
+
+  def copyResourceGens(module: Module, project: Targets, initial: Targets)(using Settings) =
+    val copyTargets = module.resourceGenerators.collect({
+      case ResourceGenerator.Copy(target, dest) => target
+    })
+    val initialCopyTargets = copyTargets.flatMap(initial.optCopy(module.name, _))
+    val currentCopyTargets = copyTargets.map(project.getCopy(module.name, _))
+    CopyResourceGens(initialCopyTargets, currentCopyTargets)
+
 
   def resourceDir(module: Module) = os.pwd / ".scala-builder" / module.name / "managed_resources"
 
@@ -79,26 +92,55 @@ private[builder] object Shared:
   end libraryDeps
 
   def hash(module: Module, project: ujson.Value, scopes: Set[String]): Result[String, String] =
-    def readFile(path: String): Result[Array[Byte], String] =
-      Result.attempt:
-        os.read.bytes(os.pwd / os.RelPath(module.root) / os.RelPath(path))
-      .resolve:
-        case err: IOException => s"failed to hash file ${path}: ${err.getMessage}"
 
-    def parseScopedSources = optional:
+    def asOsPath(path: String): os.Path = os.pwd / os.RelPath(module.root) / os.RelPath(path)
+
+    def readFile(path: os.Path): Result[Array[Byte], String] =
+      Result.attempt:
+        os.read.bytes(path)
+      .resolve:
+        case err: IOException => s"failed to hash file ${path}: ${err}"
+
+    def walkDir(path: String, ignore: List[String]): Result[Seq[os.Path], String] =
+      val ignoreSet = ignore.map(asOsPath).toSet
+      val root = os.Path(path)
+      Result.attempt:
+        if os.exists(root) then
+          os.walk(root, skip = ignoreSet.contains(_))
+        else
+          Nil
+      .resolve:
+        case err: IOException => s"failed to walk directory ${path}: ${err}"
+    end walkDir
+
+    def parseScopes = optional:
       val scopesObj = project.obj.get("scopes").?
       val scopeObjs = scopes.toList.map(scopesObj.obj.get.?)
-      val sourceArrs = scopeObjs.map(_.obj.get("sources").?.arr)
-      sourceArrs
+      scopeObjs
+
+    def parseScopedSources(scopeObjs: List[ujson.Value]) = optional:
+      val sources = scopeObjs.flatMap(_.obj.get("sources").map(_.arr.toList).getOrElse(Nil))
+      sources.map(_.str)
+
+    def parseScopedResourceDirs(scopeObjs: List[ujson.Value]) = optional:
+      val resourceDirs = scopeObjs.flatMap(_.obj.get("resourcesDirs").map(_.arr.toList).getOrElse(Nil))
+      resourceDirs.map(_.str)
 
     Result:
-      val scopedSources = parseScopedSources.asSuccess("failed to read sources").?
+      val scopeObjs = parseScopes.asSuccess("failed to read scopes from project").?
+      val scopedSources = parseScopedSources(scopeObjs).asSuccess("failed to read sources from project").?
+      val scopedResourceDirs = parseScopedResourceDirs(scopeObjs).asSuccess("failed to read resource dirs from project").?
       val hasher = Hasher()
+      for source <- scopedSources do
+        val bytes = readFile(asOsPath(source)).?
+        hasher.mix(bytes)
+
       for
-        scope <- scopedSources
-        source <- scope
+        resourceDir <- scopedResourceDirs
+        resource <- walkDir(resourceDir, ignore = scopedSources).?
+        if os.isFile(resource)
       do
-        val bytes = readFile(source.str).?
+        val bytes = readFile(resource).?
         hasher.mix(bytes)
 
       hasher.result
