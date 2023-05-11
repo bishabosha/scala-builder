@@ -1,7 +1,7 @@
 Scala Builder
 ==============
 
-The new way to glue scala-cli modules
+The new way to glue scala-cli modules, also an MVP for https://github.com/virtuslab/scala-compose
 
 ## Use Cases
 - [full stack app](examples/1-full-stack-app/builder.toml) with Scala.js front-end and JVM/Native/Node.js server
