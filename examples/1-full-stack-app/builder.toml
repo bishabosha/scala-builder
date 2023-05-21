@@ -15,7 +15,7 @@ dependsOn = ["model"] # should smartly chose the scala-js dep
 platforms = ["scala-js"]
 kind = "application"
 mainClass = "example.start"
-dependsOn = ["webpage-client", "webpage-dom"] # should smartly chose the scala-js dep
+dependsOn = ["webpage-dom", "webpage-client"] # should smartly chose the scala-js dep
 
 [modules.cask-extensions]
 
