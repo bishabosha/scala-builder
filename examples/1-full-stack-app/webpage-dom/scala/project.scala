@@ -1,2 +1,2 @@
 //> using platform "scala-js"
-//> using dep "org.scala-js::scalajs-dom::2.4.0"
+//> using dep "org.scala-js::scalajs-dom::2.6.0"
