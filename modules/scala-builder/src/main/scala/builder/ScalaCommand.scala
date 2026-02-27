@@ -1,7 +1,8 @@
 package builder
 
 import os.Shellable
-import builder.errors.*
+// import builder.errors.*
+import steps.result.Result, Result.eval.{raise, ok}
 import java.io.IOException
 
 object ScalaCommand:
@@ -54,13 +55,13 @@ object ScalaCommand:
     )
 
   def call(args: List[os.Shellable]): Result[os.CommandResult, String] =
-    Result.attempt:
-      os.proc(args).call(stdin = os.Pipe, stdout = os.Pipe, stderr = os.Pipe, check = false)
-    .resolve:
+    Result.catchException:
       case err: IOException => s"failed to run scala command: ${err.getMessage}"
+    .apply:
+      os.proc(args).call(stdin = os.Pipe, stdout = os.Pipe, stderr = os.Pipe, check = false)
 
   def spawn(args: List[os.Shellable]): Result[os.SubProcess, String] =
-    Result.attempt:
-      os.proc(args).spawn(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit)
-    .resolve:
+    Result.catchException:
       case err: IOException => s"failed to run scala command: ${err.getMessage}"
+    .apply:
+      os.proc(args).spawn(stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit)

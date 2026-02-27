@@ -2,7 +2,8 @@ package builder.targets
 
 import builder.{Module, ModuleKind}
 import builder.{settings, Settings}
-import builder.errors.*
+// import builder.errors.*
+import steps.result.Result, Result.eval.{raise, ok}
 import builder.ScalaCommand
 import builder.ScalaCommand.SubCommand
 import builder.reporter
@@ -37,7 +38,7 @@ object Step:
   ) extends Step:
 
     def exec(project: Targets, initial: Targets)(using Settings): Result[Option[TargetState], String] = Result:
-      val ph = Step.projectHash(module, platform, Set("main")).?
+      val ph = Step.projectHash(module, platform, Set("main")).ok
       val deps = Shared.dependencies(module, platform, project, initial)
       val copys = Shared.copyResourceGens(module, project, initial)
       val currentState = project.graph.get(module.name).flatMap(lookupState)
@@ -46,22 +47,22 @@ object Step:
       if !pInputs.exists(p => p.projectHash == ph.projectHash && p.platform == platform) then
         reporter.debug(s"project changed for ${target.show}, recompiling...")
         if deps.changedState then
-          Shared.cleanBeforeCompile(module).?
-        val newState = computeResult(inputs).?
+          Shared.cleanBeforeCompile(module).ok
+        val newState = computeResult(inputs).ok
         Some(computeState(inputs, newState))
       else
         if deps.changedState || copys.changedState then
           reporter.debug(s"module dependencies changed for ${target.show}, recompiling...")
-          Shared.cleanBeforeCompile(module).?
-          val newState = computeResult(inputs).?
+          Shared.cleanBeforeCompile(module).ok
+          val newState = computeResult(inputs).ok
           Some(computeState(inputs, newState))
         else if !pInputs.exists(_.sourcesHash == ph.sourcesHash) then
           reporter.debug(s"input source files changed for ${target.show}, recompiling...")
-          val newState = computeResult(inputs).?
+          val newState = computeResult(inputs).ok
           Some(computeState(inputs, newState))
         else if !currentState.exists(extraTest) then
           reporter.debug(s"extra test failed for ${target.show}, recompiling...")
-          val newState = computeResult(inputs).?
+          val newState = computeResult(inputs).ok
           Some(computeState(inputs, newState))
         else
           None
@@ -70,14 +71,14 @@ object Step:
   case class ProjectHash(structure: ujson.Value, projectHash: String, sourcesHash: String)
 
   def projectHash(module: Module, platform: PlatformKind, scopes: Set[String])(using Settings): Result[ProjectHash, String] = Result:
-    val (projectHash, structure) = Shared.readStructure(module, platform).?
-    val sourcesHash = Shared.hash(module, structure, scopes).?
+    val (projectHash, structure) = Shared.readStructure(module, platform).ok
+    val sourcesHash = Shared.hash(module, structure, scopes).ok
     ProjectHash(structure, projectHash, sourcesHash)
 
   def mainArgs(info: ModuleKind.Application): Result[List[String], String] =
     Result:
       info.mainClass match
-        case None => failure("no main class specified, TODO: interactive mode")
+        case None => raise("no main class specified, TODO: interactive mode")
         case Some(value) => "--main-class" :: value :: Nil
 
 end Step
@@ -93,13 +94,13 @@ object CompileScalaStep:
     val resourceArgs = Shared.resourceArgs(module)
     val args = ScalaCommand.makeArgs(module, InternalCommand.Compile, extra.classpath, extra.libraries, platform, "--print-class-path", resourceArgs)
     reporter.debug(s"exporting classpath of module ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
-    val res = ScalaCommand.call(args).?
+    val res = ScalaCommand.call(args).ok
     if res.exitCode != 0 then
-      failure(s"failed to compile module ${module.name}: ${res.err.lines().mkString("\n")}")
+      raise(s"failed to compile module ${module.name}: ${res.err.lines().mkString("\n")}")
     val rawClasspath = res.out.lines().head.split(":").toList.distinct.sorted
     val classpath = rawClasspath.filter(_.startsWith(buildDirStr))
     reporter.debug(s"classpath of module ${module.name}:main:${platform} is ${classpath.mkString(":")}")
-    val dependencies = Shared.libraryDeps(ph.structure, "main").?
+    val dependencies = Shared.libraryDeps(ph.structure, "main").ok
     LibraryOuts(dependencies, classpath)
   end computeClasspath
 
@@ -134,20 +135,20 @@ object PackageScalaStep:
   def computePackage(inputs: CompileInputs)(using Settings): Result[String, String] = Result:
     import inputs.*
     val info = module.kind.asApplication
-    val mainArgs = Step.mainArgs(info).?
+    val mainArgs = Step.mainArgs(info).ok
     val resourceArgs = Shared.resourceArgs(module)
     val artifact = module.platforms.head match
       case PlatformKind.jvm => os.rel / "main.jar"
       case PlatformKind.`scala-js` => os.rel / "main.js"
       case PlatformKind.`scala-native` => os.rel / "main"
     val outputPath = os.pwd / ".scala-builder" / module.name / "packaged"
-    Shared.makeDir(outputPath).?
+    Shared.makeDir(outputPath).ok
     val artifactPath = outputPath / artifact
     val args = ScalaCommand.makeArgs(module, InternalCommand.Package(artifactPath), extra.classpath, extra.libraries, platform, mainArgs, resourceArgs)
     reporter.debug(s"packaging application ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
-    val res = ScalaCommand.call(args).?
+    val res = ScalaCommand.call(args).ok
     if res.exitCode != 0 then
-      failure(s"failed to package application module ${module.name}: ${res.err.lines().mkString("\n")}")
+      raise(s"failed to package application module ${module.name}: ${res.err.lines().mkString("\n")}")
     reporter.debug(s"package of module ${module.name}:package is $artifactPath")
     artifactPath.toString
   end computePackage
@@ -192,7 +193,7 @@ final case class CopyResourceStep(module: Module, target: Target, fromTarget: Ta
     if depIsSame && currentState.exists(_.outPath == outPath) then
       None
     else
-      Shared.makeDir(destDir).?
+      Shared.makeDir(destDir).ok
       os.copy(os.Path(currentDep.outPath), dest, replaceExisting = true)
       reporter.debug(s"copied resource from ${currentDep.outPath} to $dest")
       Some(TargetState.Copy(fromTarget, outPath))
@@ -204,21 +205,21 @@ object RunScalaStep:
   def computeCommand(inputs: CompileInputs)(using Settings) = Result:
     import inputs.*
     val info = module.kind.asApplication
-    val mainArgs = Step.mainArgs(info).?
+    val mainArgs = Step.mainArgs(info).ok
     val resourceArgs = Shared.resourceArgs(module)
     def scratchDir = os.pwd / ".scala-builder" / module.name / "scratch"
     val scratchArgs =
       if platform == PlatformKind.jvm then
         Nil
       else
-        Shared.makeDir(scratchDir).?
+        Shared.makeDir(scratchDir).ok
         List("--scratch-dir", scratchDir.toString)
 
     val args = ScalaCommand.makeArgs(module, SubCommand.Run, extra.classpath, extra.libraries, platform, "--command", scratchArgs, mainArgs, resourceArgs)
     reporter.debug(s"compiling application ${module.name} with args: ${args.map(_.value.mkString(" ")).mkString(" ")}")
-    val res = ScalaCommand.call(args).?
+    val res = ScalaCommand.call(args).ok
     if res.exitCode != 0 then
-      failure(s"failed to compile application module ${module.name}: ${res.err.lines().mkString("\n")}")
+      raise(s"failed to compile application module ${module.name}: ${res.err.lines().mkString("\n")}")
     val command = res.out.lines().toList
     reporter.debug(s"command of application module ${module.name}:runner is ${command.mkString(" ")}")
     command

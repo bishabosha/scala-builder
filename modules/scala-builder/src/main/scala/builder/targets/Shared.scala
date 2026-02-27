@@ -2,7 +2,9 @@ package builder.targets
 
 import builder.Module
 import builder.Settings
-import builder.errors.*
+import builder.errors.optional, optional.OptionSugar.*
+import steps.result.Result, Result.eval.{raise, ok}
+import steps.result.ScalaConverters.*
 import builder.ScalaCommand
 import builder.ScalaCommand.SubCommand
 import builder.ScalaCommand.InternalCommand
@@ -48,23 +50,25 @@ private[builder] object Shared:
       Nil
 
   def makeDir(path: os.Path): Result[Unit, String] =
-    Result.attempt:
-      os.makeDir.all(path)
-    .resolve:
-      case err: IOException => s"failed to create directory $path: ${err.getMessage}"
+    Result
+      .catchException:
+        case err: IOException => s"failed to create directory $path: ${err.getMessage}"
+      .apply:
+        os.makeDir.all(path)
 
   def clearAndRemoveDir(path: os.Path): Result[Unit, String] =
-    Result.attempt:
-      os.remove.all(path)
-    .resolve:
-      case err: IOException => s"failed to create directory $path: ${err.getMessage}"
+    Result
+      .catchException:
+        case err: IOException => s"failed to remove directory $path: ${err.getMessage}"
+      .apply:
+        os.remove.all(path)
 
   def readStructure(module: Module, platform: PlatformKind)(using Settings): Result[(String, ujson.Value), String] =
     Result:
       val args = ScalaCommand.makeArgs(module, InternalCommand.ExportJson, classpath = Nil, dependencies = Nil, platform)
-      val result = ScalaCommand.call(args).?
+      val result = ScalaCommand.call(args).ok
       if result.exitCode != 0 then
-        failure(s"failed to read structure of module ${module.name}: ${result.err.lines().mkString("\n")}")
+        raise(s"failed to read structure of module ${module.name}: ${result.err.lines().mkString("\n")}")
       else
         val json = result.out.text()
         val project = ujson.read(json)
@@ -74,21 +78,21 @@ private[builder] object Shared:
 
   def libraryDeps(project: ujson.Value, scope: String): Result[List[String], String] =
     def dependency(value: ujson.Value): Option[String] = optional:
-      val groupId = value.obj.get("groupId").?.str
+      val groupId = value.obj.get("groupId").some.str
       val fullName =
-        val artifactId = value.obj.get("artifactId").?
-        artifactId.obj.get("fullName").?.str
-      val version = value.obj.get("version").?.str
+        val artifactId = value.obj.get("artifactId").some
+        artifactId.obj.get("fullName").some.str
+      val version = value.obj.get("version").some.str
       s"$groupId:$fullName:$version"
 
     val dependencies =
       optional:
-        val scopesObj = project.obj.get("scopes").?
-        val scopeObj = scopesObj.obj.get(scope).?
+        val scopesObj = project.obj.get("scopes").some
+        val scopeObj = scopesObj.obj.get(scope).some
         val dependencies = scopeObj.obj.get("dependencies").map(_.arr.toList).getOrElse(Nil)
-        dependencies.map(dependency.?)
+        dependencies.map(dependency(_).some)
 
-    dependencies.asSuccess("failed to read dependencies")
+    dependencies.okOr("failed to read dependencies")
   end libraryDeps
 
   def hash(module: Module, project: ujson.Value, scopes: Set[String]): Result[String, String] =
@@ -96,26 +100,26 @@ private[builder] object Shared:
     def asOsPath(path: String): os.Path = os.pwd / os.RelPath(module.root) / os.RelPath(path)
 
     def readFile(path: os.Path): Result[Array[Byte], String] =
-      Result.attempt:
-        os.read.bytes(path)
-      .resolve:
+      Result.catchException:
         case err: IOException => s"failed to hash file ${path}: ${err}"
+      .apply:
+        os.read.bytes(path)
 
     def walkDir(path: String, ignore: List[String]): Result[Seq[os.Path], String] =
       val ignoreSet = ignore.map(asOsPath).toSet
       val root = os.Path(path)
-      Result.attempt:
+      Result.catchException:
+        case err: IOException => s"failed to walk directory ${path}: ${err}"
+      .apply:
         if os.exists(root) then
           os.walk(root, skip = ignoreSet.contains(_))
         else
           Nil
-      .resolve:
-        case err: IOException => s"failed to walk directory ${path}: ${err}"
     end walkDir
 
     def parseScopes = optional:
-      val scopesObj = project.obj.get("scopes").?
-      val scopeObjs = scopes.toList.map(scopesObj.obj.get.?)
+      val scopesObj = project.obj.get("scopes").some
+      val scopeObjs = scopes.toList.map(scopesObj.obj.get(_).some)
       scopeObjs
 
     def parseScopedSources(scopeObjs: List[ujson.Value]) = optional:
@@ -127,20 +131,20 @@ private[builder] object Shared:
       resourceDirs.map(_.str)
 
     Result:
-      val scopeObjs = parseScopes.asSuccess("failed to read scopes from project").?
-      val scopedSources = parseScopedSources(scopeObjs).asSuccess("failed to read sources from project").?
-      val scopedResourceDirs = parseScopedResourceDirs(scopeObjs).asSuccess("failed to read resource dirs from project").?
+      val scopeObjs = parseScopes.okOr("failed to read scopes from project").ok
+      val scopedSources = parseScopedSources(scopeObjs).okOr("failed to read sources from project").ok
+      val scopedResourceDirs = parseScopedResourceDirs(scopeObjs).okOr("failed to read resource dirs from project").ok
       val hasher = Hasher()
       for source <- scopedSources do
-        val bytes = readFile(asOsPath(source)).?
+        val bytes = readFile(asOsPath(source)).ok
         hasher.mix(bytes)
 
       for
         resourceDir <- scopedResourceDirs
-        resource <- walkDir(resourceDir, ignore = scopedSources).?
+        resource <- walkDir(resourceDir, ignore = scopedSources).ok
         if os.isFile(resource)
       do
-        val bytes = readFile(resource).?
+        val bytes = readFile(resource).ok
         hasher.mix(bytes)
 
       hasher.result
@@ -165,7 +169,7 @@ private[builder] object Shared:
   )(using Settings): Result[Option[(String, TargetState)], String] =
     Result:
       reporter.debug(s"running step for target ${step.target.show}...")
-      val update = step.exec(project = curr, initial = initial).?
+      val update = step.exec(project = curr, initial = initial).ok
       update.map(step.module.name -> _)
 
   def cleanBeforeCompile(module: Module)(using Settings) =
@@ -175,8 +179,8 @@ private[builder] object Shared:
   def doCleanModule(module: Module)(using Settings): Result[Unit, String] =
     Result:
       val args = ScalaCommand.makeArgs(module, SubCommand.Clean, Nil, Nil, PlatformKind.jvm)
-      val result = ScalaCommand.call(args).?
+      val result = ScalaCommand.call(args).ok
       if result.exitCode != 0 then
-        failure(s"failed to clean module ${module.name}: ${result.err.lines().mkString("\n")}")
+        raise(s"failed to clean module ${module.name}: ${result.err.lines().mkString("\n")}")
 
 end Shared

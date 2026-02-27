@@ -5,9 +5,10 @@ import builder.ModuleGraph
 import builder.Module
 import builder.ModuleKind
 import builder.settings
-import builder.errors.Result
-import builder.errors.failure
-import builder.errors.CanError
+// import builder.errors.Result
+// import builder.errors.failure
+// import builder.errors.CanError
+import steps.result.Result, Result.eval.{raise, ok}
 import builder.reporter
 import builder.ScalaCommand
 import builder.ScalaCommand.SubCommand
@@ -25,7 +26,7 @@ sealed trait Plan:
 object Plan:
 
   def compile(targetModules: Set[Module], subcommand: SubCommand)(using Settings): Result[Plan, String] = Result:
-    val graph = TargetGraph.compile(settings.config.modules, targetModules.toSeq, subcommand).?
+    val graph = TargetGraph.compile(settings.config.modules, targetModules.toSeq, subcommand).ok
     val stages = graph.stages
 
     reporter.debug(s"compilation plan for command ${subcommand} ${targetModules.map(_.name).mkString(", ")}:\n${graph.show}")
@@ -50,7 +51,7 @@ object Plan:
         def exec(initial: Targets)(using Settings): Result[Targets, String] =
           Result:
             stepss.foldLeft(initial): (curr, steps) =>
-              val updates = for step <- steps yield Shared.runStep(step, curr, initial).?
+              val updates = for step <- steps yield Shared.runStep(step, curr, initial).ok
               curr ++ updates.flatten
       end new
     else
@@ -64,7 +65,7 @@ object Plan:
                     Future:
                       Shared.runStep(step, curr, initial)
               val updateResults = Await.result(updateResultsF, Duration.Inf)
-              curr ++ updateResults.flatMap(_.?)
+              curr ++ updateResults.flatMap(_.ok)
       end new
     end if
   end compile
