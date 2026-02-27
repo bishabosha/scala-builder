@@ -2,13 +2,14 @@ package builder
 
 import toml.Value.*
 import upickle.default.*
-import builder.errors.*
+// import builder.errors.*
+import steps.result.Result, Result.eval.{raise, ok}
 
 object Config:
 
   def parse(text: String): Result[Config, String] =
     toml.Toml.parse(text) match
-      case Left((_, msg)) => Result.Failure(msg)
+      case Left((_, msg)) => Result.Err(msg)
       case Right(value) => readConfig(value)
 
   private def readConfig(table: Tbl): Result[Config, String] =
@@ -16,13 +17,13 @@ object Config:
       Config(
         scalaVersion = table.values.get("scalaVersion").map({
           case Str(value) => value
-          case _ => failure("scalaVersion must be a string")
+          case _ => raise("scalaVersion must be a string")
         }),
         modules = table.values.get("modules").map({
           case Tbl(values) =>
-            val parsed = values.view.map(readModule.tupled.?)
-            ModuleGraph.assemble(parsed.toList).?
-          case _ => failure("modules must be a table")
+            val parsed = values.view.map(readModule.tupled(_).ok)
+            ModuleGraph.assemble(parsed.toList).ok
+          case _ => raise("modules must be a table")
         }).getOrElse(Map.empty)
       )
 
@@ -31,43 +32,43 @@ object Config:
       case Tbl(values) =>
         val root = values.get("root").map({
           case Str(value) => value
-          case _ => failure(s"modules.${key}.root must be a string")
+          case _ => raise(s"modules.${key}.root must be a string")
         }).getOrElse(key)
         val kind = values.get("kind").map({
           case Str(value) => value
-          case _ => failure(s"modules.${key}.kind must be a string")
+          case _ => raise(s"modules.${key}.kind must be a string")
         }).getOrElse("library")
         val platforms = values.get("platforms").map({
           case Arr(values) => values.map({
             case Str(value) => PlatformKind.lookup(value) match
-              case None => failure(s"unknown platform for modules.${key}.platforms: $value")
+              case None => raise(s"unknown platform for modules.${key}.platforms: $value")
               case Some(platform) => platform
 
-            case _ => failure(s"modules.${key}.platforms must be a list of strings")
+            case _ => raise(s"modules.${key}.platforms must be a list of strings")
           })
-          case _ => failure(s"modules.${key}.platforms must be a list of strings")
+          case _ => raise(s"modules.${key}.platforms must be a list of strings")
         }).getOrElse(List(PlatformKind.jvm))
         val dependsOn = values.get("dependsOn").map({
           case Arr(values) => values.map({
             case Str(value) => value
-            case _ => failure(s"modules.${key}.dependsOn must be a list of strings")
+            case _ => raise(s"modules.${key}.dependsOn must be a list of strings")
           })
-          case _ => failure(s"modules.${key}.dependsOn must be a list of strings")
+          case _ => raise(s"modules.${key}.dependsOn must be a list of strings")
         }).getOrElse(Nil)
         val mainClass = values.get("mainClass").map({
           case Str(value) => value
-          case _ => failure(s"modules.${key}.mainClass must be a string")
+          case _ => raise(s"modules.${key}.mainClass must be a string")
         })
         val moduleKind = kind match
           case "library" => ModuleKind.Library
           case "application" => ModuleKind.Application(mainClass = mainClass)
-          case _ => failure(s"unknown module kind for modules.${key}.kind: $kind")
+          case _ => raise(s"unknown module kind for modules.${key}.kind: $kind")
         if !moduleKind.isInstanceOf[ModuleKind.Application] && mainClass.nonEmpty then
-          failure(s"modules.${key}.mainClass is only valid for application modules")
+          raise(s"modules.${key}.mainClass is only valid for application modules")
         // resourceGenerators = [{ module = "webpage", dest = "assets/main.js" }]
         val resourceGenerators = values.get("resourceGenerators").map({
-          case Arr(values) => values.map(readResourceGenerator(key, _).?)
-          case _ => failure(s"modules.${key}.resourceGenerators must be a list of tables")
+          case Arr(values) => values.map(readResourceGenerator(key, _).ok)
+          case _ => raise(s"modules.${key}.resourceGenerators must be a list of tables")
         }).getOrElse(Nil)
         Module(
           name = key,
@@ -78,7 +79,7 @@ object Config:
           resourceGenerators = resourceGenerators
         )
       case _ =>
-        failure(s"module.$key must be a table")
+        raise(s"module.$key must be a table")
   end readModule
 
   private def readResourceGenerator[T](module: String, value: toml.Value): Result[ResourceGenerator, String] = Result:
@@ -86,15 +87,15 @@ object Config:
       case Tbl(values) =>
         val fromModule = values.get("module").map({
           case Str(value) => value
-          case _ => failure(s"modules.${module}.resourceGenerators.module must be a string")
-        }).getOrElse(failure(s"modules.${module}.resourceGenerators.module must be a string"))
+          case _ => raise(s"modules.${module}.resourceGenerators.module must be a string")
+        }).getOrElse(raise(s"modules.${module}.resourceGenerators.module must be a string"))
         val dest = values.get("dest").map({
           case Str(value) => value
-          case _ => failure(s"modules.${module}.resourceGenerators.dest must be a string")
-        }).getOrElse(failure(s"modules.${module}.resourceGenerators.dest must be a string"))
+          case _ => raise(s"modules.${module}.resourceGenerators.dest must be a string")
+        }).getOrElse(raise(s"modules.${module}.resourceGenerators.dest must be a string"))
         val target = targets.Target(fromModule, targets.TargetKind.Package)
         ResourceGenerator.Copy(target = target, dest = dest)
-      case _ => failure(s"modules.${module}.resourceGenerators must be a list of tables")
+      case _ => raise(s"modules.${module}.resourceGenerators must be a list of tables")
   end readResourceGenerator
 
 case class Config(
@@ -120,12 +121,13 @@ object PlatformKind:
   def lookup(str: String): Option[PlatformKind] = byName.get(str)
 
 enum ModuleKind derives ReadWriter:
+  import scala.util.boundary, boundary.Label
   case Library
   case Application(mainClass: Option[String])
 
-  inline def asApplication(using inline ce: CanError[String]): Application = this match
+  inline def asApplication(using Label[Result.Err[String]]): Application = this match
     case app: Application => app
-    case _ => failure("expected application module")
+    case _ => raise("expected application module")
 
 enum ResourceGenerator derives ReadWriter:
   case Copy(target: targets.Target, dest: String)

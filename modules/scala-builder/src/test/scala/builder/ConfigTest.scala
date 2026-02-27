@@ -1,6 +1,7 @@
 package builder
 
-import builder.errors.Result
+import steps.result.Result, Result.eval.{raise, ok}
+import builder.errors.optional, optional.OptionSugar.*
 import builder.targets.*
 import builder.ScalaCommand.SubCommand
 
@@ -33,8 +34,8 @@ class ConfigTest extends munit.FunSuite {
 
   extension [T](result: Result[T, String])
     def orFail: T = result match
-      case Result.Success(value) => value
-      case Result.Failure(err) => fail(s"failed result: $err")
+      case Result.Ok(value) => value
+      case Result.Err(err) => fail(s"failed result: $err")
 
   test("parse config from valid toml") {
 
@@ -280,4 +281,33 @@ class ConfigTest extends munit.FunSuite {
     )
   )
 
+  val fooConfig = """
+  [modules.common]
+
+  [modules.model]
+  dependsOn = ["common"]
+
+  [modules.database]
+  dependsOn = ["common"]
+
+  [modules.auth]
+  dependsOn = ["common"]
+
+  [modules.client]
+  dependsOn = ["model"]
+
+  [modules.server]
+  dependsOn = ["model", "database", "auth"]
+  """
+
+  stageTest("sort module deps into stages [foo]")(
+    rawConfig = fooConfig,
+    command = SubCommand.Repl,
+    targets = Seq(),
+    expected = List(
+      List("common:main:jvm"),
+      List("model:main:jvm", "database:main:jvm", "auth:main:jvm"),
+      List("server:main:jvm", "client:main:jvm"),
+    )
+  )
 }

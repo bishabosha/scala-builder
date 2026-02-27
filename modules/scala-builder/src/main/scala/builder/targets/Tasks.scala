@@ -1,7 +1,8 @@
 package builder.targets
 
 import builder.reporter
-import builder.errors.*
+// import builder.errors.*
+import steps.result.Result, Result.eval.{raise, ok}
 
 import builder.{Module, ModuleKind}
 import builder.{settings, Settings}
@@ -21,8 +22,8 @@ object Tasks:
     def cleanOne(module: Module): Result[Unit, String] =
       Result:
         reporter.info(s"cleaning module ${module.name}...")
-        Shared.doCleanModule(module).?
-        Shared.clearAndRemoveDir(os.pwd / ".scala-builder" / module.name).?
+        Shared.doCleanModule(module).ok
+        Shared.clearAndRemoveDir(os.pwd / ".scala-builder" / module.name).ok
 
     val results =
       if settings.sequential then
@@ -35,7 +36,7 @@ object Tasks:
               cleanOne(module)
         Await.result(Future.sequence(futures), Duration.Inf)
     Result:
-      results.foreach(_.?)
+      results.foreach(_.ok)
   end clean
 
   def run(module: Module, info: ModuleKind.Application, project: Targets)(using Settings): Result[Unit, String] =
@@ -44,14 +45,14 @@ object Tasks:
       val appCommand = target.outCommand
 
       val mainMessage = info.mainClass match
-        case None => failure("no main class specified, TODO: interactive mode")
+        case None => raise("no main class specified, TODO: interactive mode")
         case Some(value) => s"with specified main class $value"
 
       reporter.debug(s"running command: ${appCommand.mkString(" ")}")
-      val result = ScalaCommand.spawn(List(appCommand)).?
+      val result = ScalaCommand.spawn(List(appCommand)).ok
 
       if !result.join() then
-        failure(s"failure with exit code ${result.exitCode()}")
+        raise(s"failure with exit code ${result.exitCode()}")
 
   def repl(module: Module, project: Targets)(using Settings): Result[Unit, String] =
     def resourceDir = os.pwd / ".scala-builder" / module.name / "managed_resources"
@@ -63,10 +64,10 @@ object Tasks:
       val resourceArgs = Shared.resourceArgs(module)
       val args = ScalaCommand.makeArgs(module, SubCommand.Repl, classpath, dependencies, PlatformKind.jvm, resourceArgs)
       reporter.debug(s"running command: ${args.map(_.value.mkString(" ")).mkString(" ")}")
-      val result = ScalaCommand.spawn(args).?
+      val result = ScalaCommand.spawn(args).ok
 
       if !result.join() then
-        failure(s"failure with exit code ${result.exitCode()}")
+        raise(s"failure with exit code ${result.exitCode()}")
 
   def test(modules: Set[Module], project: Targets, initial: Targets)(using Settings): Result[Unit, String] =
     def testOne(module: Module): Result[Unit, String] =
@@ -75,23 +76,23 @@ object Tasks:
         val deps = Shared.dependencies(module, PlatformKind.jvm, project, initial)
 
         if deps.changedState then
-          Shared.cleanBeforeCompile(module).?
+          Shared.cleanBeforeCompile(module).ok
 
         val resourceArgs = Shared.resourceArgs(module)
         val args = ScalaCommand.makeArgs(module, SubCommand.Test, deps.classpath, deps.libraries, PlatformKind.jvm, resourceArgs)
         reporter.debug(s"running command: ${args.map(_.value.mkString(" ")).mkString(" ")}")
-        val result = ScalaCommand.spawn(args).?
+        val result = ScalaCommand.spawn(args).ok
 
         if !result.join() then
-          failure(s"failure with exit code ${result.exitCode()}")
+          raise(s"failure with exit code ${result.exitCode()}")
     Result:
       if settings.sequential then
         for module <- modules do
-          testOne(module).?
+          testOne(module).ok
       else
         val futures = for module <- modules.toList yield
           Future:
             blocking:
               testOne(module)
         val results = Await.result(Future.sequence(futures), Duration.Inf)
-        results.foreach(_.?)
+        results.foreach(_.ok)

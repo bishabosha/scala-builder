@@ -1,9 +1,9 @@
 package builder
 
-import errors.*
-
 import collection.mutable
 import scala.annotation.tailrec
+
+import steps.result.Result, Result.eval.{ok, raise}
 
 object ModuleGraph:
 
@@ -16,12 +16,12 @@ object ModuleGraph:
       if visiting.contains(node.name) then
         val fromName = Option(from).map(_.name).getOrElse("<unknown>")
         val onMessage = if fromName == node.name then "itself." else s"module '${node.name}'."
-        failure(s"module graph is invalid: module '$fromName' has a cyclic dependency on $onMessage")
+        raise(s"module graph is invalid: module '$fromName' has a cyclic dependency on $onMessage")
       else if !seen.contains(node.name) then
         visiting.add(node.name)
         for dep <- node.dependsOn do lookup.get(dep) match
           case Some(module) => visit(module, node)
-          case _ => failure(s"module '${node.name}' depends on '$dep' which does not exist.")
+          case _ => raise(s"module '${node.name}' depends on '$dep' which does not exist.")
         visiting.remove(node.name)
         seen.addOne(node.name)
       else

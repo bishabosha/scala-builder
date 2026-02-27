@@ -13,7 +13,8 @@ import scala.collection.mutable
 import scala.annotation.tailrec
 import scala.collection.SeqMap
 
-import builder.errors.*
+// import builder.errors.*
+import steps.result.Result, Result.eval.{raise, ok}
 import builder.ResourceGenerator
 import builder.PlatformKind
 
@@ -131,12 +132,12 @@ object TargetGraph:
               val fromPlatform =
                 val options = graph(fromModule).platforms
                 if options.sizeIs == 1 then options.head
-                else failure(s"cannot copy target ${fromTarget.show} because it is a package target and has multiple platforms")
+                else raise(s"cannot copy target ${fromTarget.show} because it is a package target and has multiple platforms")
 
               stepModule(fromModule, fromPlatform, TargetKind.Package)
-            case TargetKind.Library(_) => failure(s"cannot copy library target ${fromTarget.show}")
-            case TargetKind.Application => failure(s"cannot copy application target ${fromTarget.show}")
-            case TargetKind.Copy(target) => failure(s"cannot copy target ${fromTarget.show} because it is a copy target")
+            case TargetKind.Library(_) => raise(s"cannot copy library target ${fromTarget.show}")
+            case TargetKind.Application => raise(s"cannot copy application target ${fromTarget.show}")
+            case TargetKind.Copy(target) => raise(s"cannot copy target ${fromTarget.show} because it is a copy target")
 
           target
 
@@ -163,7 +164,7 @@ object TargetGraph:
         case SubCommand.Run => TargetKind.Application
         case SubCommand.Repl => TargetKind.Library(PlatformKind.jvm)
         case SubCommand.Test => TargetKind.Library(PlatformKind.jvm)
-        case SubCommand.Clean => failure("cannot create target graph for clean subcommand")
+        case SubCommand.Clean => raise("cannot create target graph for clean subcommand")
 
       val targetPlatforms =
         for target <- targetModules yield
